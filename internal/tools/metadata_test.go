@@ -22,7 +22,7 @@ func TestMetadataHandler(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	client := onec.NewClient(mockServer.URL)
+	client := onec.NewClient(mockServer.URL, "", "")
 	handler := NewMetadataHandler(client)
 
 	result, err := handler(context.Background(), &mcp.CallToolRequest{})

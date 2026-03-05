@@ -8,12 +8,15 @@ import (
 )
 
 func TestNewClient(t *testing.T) {
-	c := NewClient("http://localhost:8080/1c-mcp")
+	c := NewClient("http://localhost:8080/1c-mcp", "", "")
 	if c == nil {
 		t.Fatal("expected non-nil client")
 	}
 	if c.BaseURL != "http://localhost:8080/1c-mcp" {
 		t.Fatalf("expected base URL, got %s", c.BaseURL)
+	}
+	if c.User != "" {
+		t.Fatalf("expected empty user, got %s", c.User)
 	}
 }
 
@@ -27,7 +30,7 @@ func TestClientGet(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	client := NewClient(server.URL, "", "")
 	var result map[string]string
 	err := client.Get(context.Background(), "/test", &result)
 	if err != nil {
@@ -38,6 +41,46 @@ func TestClientGet(t *testing.T) {
 	}
 }
 
+func TestClientBasicAuth(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, pass, ok := r.BasicAuth()
+		if !ok {
+			t.Fatal("expected basic auth header")
+		}
+		if user != "admin" || pass != "secret" {
+			t.Fatalf("unexpected credentials: %s:%s", user, pass)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "admin", "secret")
+	var result map[string]any
+	err := client.Get(context.Background(), "/auth", &result)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestClientNoAuthWhenUserEmpty(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			t.Fatal("expected no Authorization header when user is empty")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "", "")
+	var result map[string]any
+	err := client.Get(context.Background(), "/noauth", &result)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestClientGetError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -45,7 +88,7 @@ func TestClientGetError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	client := NewClient(server.URL, "", "")
 	var result map[string]string
 	err := client.Get(context.Background(), "/test", &result)
 	if err == nil {

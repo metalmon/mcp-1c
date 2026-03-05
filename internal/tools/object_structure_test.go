@@ -40,7 +40,7 @@ func TestObjectStructureHandler(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	client := onec.NewClient(mockServer.URL)
+	client := onec.NewClient(mockServer.URL, "", "")
 	handler := NewObjectStructureHandler(client)
 
 	args, _ := json.Marshal(map[string]string{
@@ -89,7 +89,7 @@ func TestObjectStructureHandler(t *testing.T) {
 }
 
 func TestObjectStructureHandler_MissingArgs(t *testing.T) {
-	client := onec.NewClient("http://localhost:0")
+	client := onec.NewClient("http://localhost:0", "", "")
 	handler := NewObjectStructureHandler(client)
 
 	args, _ := json.Marshal(map[string]string{})

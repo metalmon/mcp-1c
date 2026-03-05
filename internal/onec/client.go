@@ -12,13 +12,18 @@ import (
 // Client is an HTTP client for communicating with 1C:Enterprise.
 type Client struct {
 	BaseURL    string
+	User       string
+	Password   string
 	HTTPClient *http.Client
 }
 
 // NewClient creates a client for 1C HTTP service.
-func NewClient(baseURL string) *Client {
+// When user is non-empty, basic auth is added to every request.
+func NewClient(baseURL, user, password string) *Client {
 	return &Client{
-		BaseURL: baseURL,
+		BaseURL:  baseURL,
+		User:     user,
+		Password: password,
 		HTTPClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -32,6 +37,10 @@ func (c *Client) Get(ctx context.Context, endpoint string, result any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
+	}
+
+	if c.User != "" {
+		req.SetBasicAuth(c.User, c.Password)
 	}
 
 	resp, err := c.HTTPClient.Do(req)
