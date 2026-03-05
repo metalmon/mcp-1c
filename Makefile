@@ -1,4 +1,4 @@
-.PHONY: build test clean release
+.PHONY: build test clean release mock
 
 build:
 	go build -o bin/mcp-1c ./cmd/mcp-1c
@@ -14,3 +14,6 @@ release:
 	GOOS=linux GOARCH=amd64 go build -o dist/mcp-1c-linux-amd64 ./cmd/mcp-1c
 	GOOS=darwin GOARCH=arm64 go build -o dist/mcp-1c-darwin-arm64 ./cmd/mcp-1c
 	GOOS=darwin GOARCH=amd64 go build -o dist/mcp-1c-darwin-amd64 ./cmd/mcp-1c
+
+mock:
+	go run ./cmd/mock-1c
