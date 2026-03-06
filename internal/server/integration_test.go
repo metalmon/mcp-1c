@@ -370,8 +370,8 @@ func TestIntegration_ListPrompts(t *testing.T) {
 		}
 	}
 
-	if len(result.Prompts) != 8 {
-		t.Errorf("expected 8 prompts, got %d", len(result.Prompts))
+	if len(result.Prompts) != len(expected) {
+		t.Errorf("expected %d prompts, got %d", len(expected), len(result.Prompts))
 	}
 }
 

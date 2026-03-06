@@ -86,10 +86,13 @@ func formatMetadataTree(tree map[string][]string) string {
 	// Render known categories in defined order.
 	for _, cat := range metadataCategories {
 		items, ok := tree[cat.key]
-		if !ok || len(items) == 0 {
+		if !ok {
 			continue
 		}
 		rendered[cat.key] = true
+		if len(items) == 0 {
+			continue
+		}
 		writeSection(&b, cat.title, items)
 	}
 
