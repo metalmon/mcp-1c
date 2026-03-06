@@ -11,6 +11,9 @@
 | `/module/{type}/{name}/{kind}` | GET | [module.bsl](module.bsl) | Код модуля объекта |
 | `/query` | POST | [query.bsl](query.bsl) | Выполнение запроса (только SELECT) |
 | `/version` | GET | [version.bsl](version.bsl) | Версия расширения |
+| `/search` | POST | [search.bsl](search.bsl) | Поиск по коду модулей |
+| `/form/{type}/{name}` | GET | [form-structure.bsl](form-structure.bsl) | Структура формы объекта |
+| `/validate-query` | POST | [validate-query.bsl](validate-query.bsl) | Валидация синтаксиса запроса |
 
 ## Установка
 
