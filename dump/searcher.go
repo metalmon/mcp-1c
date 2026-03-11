@@ -9,9 +9,10 @@ import (
 
 // Match represents a single search hit in a BSL module.
 type Match struct {
-	Module  string // Human-readable module path (e.g. "Документ.РеализацияТоваров.МодульОбъекта")
-	Line    int    // 1-based line number of the match
-	Context string // Surrounding lines for context
+	Module  string  // Human-readable module path (e.g. "Документ.РеализацияТоваров.МодульОбъекта")
+	Line    int     // 1-based line number of the match
+	Context string  // Surrounding lines for context
+	Score   float64 // BM25 relevance score (smart mode only)
 }
 
 // module holds the content and display name of a loaded BSL module.
@@ -170,6 +171,20 @@ func bslPathToModuleName(relPath string) string {
 	suffix, ok := moduleNameSuffixes[fileName]
 	if !ok {
 		suffix = strings.TrimSuffix(fileName, ".bsl")
+	}
+
+	// Fix: CommonModules use "Модуль", not "МодульФормы" for Module.bsl.
+	if category == "CommonModules" && fileName == "Module.bsl" {
+		inForms := false
+		for _, p := range parts {
+			if p == "Forms" {
+				inForms = true
+				break
+			}
+		}
+		if !inForms {
+			suffix = "Модуль"
+		}
 	}
 
 	// If the path has a Forms subdirectory, include form name.

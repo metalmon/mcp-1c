@@ -101,7 +101,7 @@ func TestBslPathToModuleName(t *testing.T) {
 		{"Documents/Реализация/Ext/ObjectModule.bsl", "Документ.Реализация.МодульОбъекта"},
 		{"DataProcessors/Обработка1/Ext/ObjectModule.bsl", "Обработка.Обработка1.МодульОбъекта"},
 		{"Documents/Док/Forms/ФормаДок/Ext/Module.bsl", "Документ.Док.Форма.ФормаДок.МодульФормы"},
-		{"CommonModules/ОбщийМодуль1/Ext/Module.bsl", "ОбщийМодуль.ОбщийМодуль1.МодульФормы"},
+		{"CommonModules/ОбщийМодуль1/Ext/Module.bsl", "ОбщийМодуль.ОбщийМодуль1.Модуль"},
 	}
 
 	for _, tt := range tests {
