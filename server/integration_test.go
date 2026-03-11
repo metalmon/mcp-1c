@@ -202,7 +202,7 @@ func setupIntegration(t *testing.T) (*mcp.ClientSession, func()) {
 		t.Fatalf("NewSearcher: %v", err)
 	}
 
-	srv := New(client, dumpSearcher)
+	srv := New("test", client, dumpSearcher)
 
 	ctx := context.Background()
 	ct, st := mcp.NewInMemoryTransports()

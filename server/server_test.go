@@ -8,7 +8,7 @@ import (
 
 func TestNewServer(t *testing.T) {
 	client := onec.NewClient("http://localhost:8080/mcp", "", "")
-	s := New(client, nil)
+	s := New("test", client, nil)
 	if s == nil {
 		t.Fatal("expected non-nil server")
 	}

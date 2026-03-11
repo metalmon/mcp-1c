@@ -10,11 +10,11 @@ import (
 
 // New creates an MCP server with basic configuration and registers tools.
 // If dumpSearcher is provided, the search_code tool will be registered.
-func New(onecClient *onec.Client, dumpSearcher *dump.Searcher) *mcp.Server {
+func New(version string, onecClient *onec.Client, dumpSearcher *dump.Searcher) *mcp.Server {
 	s := mcp.NewServer(
 		&mcp.Implementation{
 			Name:    "mcp-1c",
-			Version: "0.4.0-beta",
+			Version: version,
 		},
 		nil,
 	)

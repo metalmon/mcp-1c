@@ -16,6 +16,11 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// version is set at build time via ldflags:
+//
+//	go build -ldflags "-X main.version=0.4.2-beta" ./cmd/mcp-1c
+var version = "dev"
+
 const expectedExtensionVersion = "0.4.0"
 
 func main() {
@@ -70,7 +75,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Loaded %d BSL modules from dump\n", dumpSearcher.ModuleCount())
 	}
 
-	s := server.New(client, dumpSearcher)
+	s := server.New(version, client, dumpSearcher)
 
 	if err := s.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		fmt.Fprintf(os.Stderr, "mcp-1c error: %v\n", err)
