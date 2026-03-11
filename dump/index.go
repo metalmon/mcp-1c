@@ -11,6 +11,111 @@ import (
 	"github.com/blevesearch/bleve/v2/search/query"
 )
 
+// Match represents a single search hit in a BSL module.
+type Match struct {
+	Module  string  // Human-readable module path (e.g. "Документ.РеализацияТоваров.МодульОбъекта")
+	Line    int     // 1-based line number of the match
+	Context string  // Surrounding lines for context
+	Score   float64 // BM25 relevance score (smart mode only)
+}
+
+// extractContext returns lines around the given index with a context window.
+func extractContext(lines []string, idx, window int) string {
+	start := idx - window
+	if start < 0 {
+		start = 0
+	}
+	end := idx + window + 1
+	if end > len(lines) {
+		end = len(lines)
+	}
+	return strings.Join(lines[start:end], "\n")
+}
+
+// dumpDirNames maps 1C metadata type names (English) used in DumpConfigToFiles
+// to their Russian display name prefixes.
+var dumpDirNames = map[string]string{
+	"Catalogs":               "Справочник",
+	"Documents":              "Документ",
+	"DataProcessors":         "Обработка",
+	"Reports":                "Отчет",
+	"InformationRegisters":   "РегистрСведений",
+	"AccumulationRegisters":  "РегистрНакопления",
+	"AccountingRegisters":    "РегистрБухгалтерии",
+	"CalculationRegisters":   "РегистрРасчета",
+	"ChartsOfAccounts":       "ПланСчетов",
+	"ChartsOfCharacteristicTypes": "ПланВидовХарактеристик",
+	"ChartsOfCalculationTypes":    "ПланВидовРасчета",
+	"ExchangePlans":          "ПланОбмена",
+	"BusinessProcesses":      "БизнесПроцесс",
+	"Tasks":                  "Задача",
+	"CommonModules":          "ОбщийМодуль",
+	"Enums":                  "Перечисление",
+	"Constants":              "Константа",
+}
+
+// moduleNameSuffixes maps BSL file names to their module type suffix.
+var moduleNameSuffixes = map[string]string{
+	"ObjectModule.bsl":    "МодульОбъекта",
+	"ManagerModule.bsl":   "МодульМенеджера",
+	"Module.bsl":          "МодульФормы",
+	"RecordSetModule.bsl": "МодульНабораЗаписей",
+	"CommandModule.bsl":   "МодульКоманды",
+	"Ext.Module.bsl":      "МодульФормы",
+}
+
+// bslPathToModuleName converts a relative file path from the dump to a human-readable module name.
+// Example: "Documents/РеализацияТоваров/Ext/ObjectModule.bsl" -> "Документ.РеализацияТоваров.МодульОбъекта"
+func bslPathToModuleName(relPath string) string {
+	// Normalise separators.
+	relPath = filepath.ToSlash(relPath)
+	parts := strings.Split(relPath, "/")
+
+	if len(parts) < 2 {
+		return relPath
+	}
+
+	// First part is the category directory.
+	category := parts[0]
+	prefix, ok := dumpDirNames[category]
+	if !ok {
+		prefix = category
+	}
+
+	objectName := parts[1]
+
+	// Determine suffix from the file name.
+	fileName := parts[len(parts)-1]
+	suffix, ok := moduleNameSuffixes[fileName]
+	if !ok {
+		suffix = strings.TrimSuffix(fileName, ".bsl")
+	}
+
+	// Fix: CommonModules use "Модуль", not "МодульФормы" for Module.bsl.
+	if category == "CommonModules" && fileName == "Module.bsl" {
+		inForms := false
+		for _, p := range parts {
+			if p == "Forms" {
+				inForms = true
+				break
+			}
+		}
+		if !inForms {
+			suffix = "Модуль"
+		}
+	}
+
+	// If the path has a Forms subdirectory, include form name.
+	for i, p := range parts {
+		if p == "Forms" && i+1 < len(parts) {
+			formName := parts[i+1]
+			return prefix + "." + objectName + ".Форма." + formName + "." + suffix
+		}
+	}
+
+	return prefix + "." + objectName + "." + suffix
+}
+
 // SearchMode determines the search strategy.
 type SearchMode string
 
