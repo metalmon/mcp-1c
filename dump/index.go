@@ -2,10 +2,13 @@ package dump
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/blevesearch/bleve/v2"
 	"github.com/blevesearch/bleve/v2/search/query"
@@ -153,42 +156,73 @@ type Index struct {
 	contentByName map[string]string   // single source of truth
 }
 
-// NewIndex walks the dump directory, loads all .bsl files and builds an in-memory
-// Bleve index. Progress is printed to stderr.
+// loadedModule holds the result of reading a single .bsl file.
+type loadedModule struct {
+	name    string
+	content string
+}
+
+// NewIndex walks the dump directory, loads all .bsl files in parallel and builds
+// an in-memory Bleve index using batch operations. Progress is printed to stderr.
 func NewIndex(dir string) (*Index, error) {
 	idx := &Index{
 		dir:           dir,
 		contentByName: make(map[string]string),
 	}
 
-	// Collect all .bsl files.
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	// Phase 1: collect all .bsl file paths (fast directory walk, no file I/O).
+	var paths []string
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if info.IsDir() || !strings.HasSuffix(strings.ToLower(info.Name()), ".bsl") {
+		if d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".bsl") {
 			return nil
 		}
-
-		data, readErr := os.ReadFile(path)
-		if readErr != nil {
-			return readErr
-		}
-
-		rel, err := filepath.Rel(dir, path)
-		if err != nil {
-			return fmt.Errorf("relative path for %s: %w", path, err)
-		}
-		name := bslPathToModuleName(rel)
-		idx.names = append(idx.names, name)
-		idx.contentByName[name] = string(data)
+		paths = append(paths, path)
 		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("walking dump directory: %w", err)
 	}
 
-	// Build Bleve in-memory index.
+	// Phase 2: read files in parallel using a worker pool.
+	results := make(chan loadedModule, len(paths))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, runtime.NumCPU())
+
+	for _, p := range paths {
+		wg.Add(1)
+		go func(path string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return // skip unreadable files
+			}
+			rel, err := filepath.Rel(dir, path)
+			if err != nil {
+				return
+			}
+			name := bslPathToModuleName(rel)
+			results <- loadedModule{name: name, content: string(data)}
+		}(p)
+	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results from workers.
+	for m := range results {
+		idx.names = append(idx.names, m.name)
+		idx.contentByName[m.name] = m.content
+	}
+
+	// Phase 3: build Bleve in-memory index with batch operations.
 	bslMapping := buildBSLMapping()
 	blevIdx, err := bleve.NewMemOnly(bslMapping)
 	if err != nil {
@@ -197,6 +231,15 @@ func NewIndex(dir string) (*Index, error) {
 	idx.index = blevIdx
 
 	total := len(idx.names)
+	const batchSize = 1000
+
+	// Adaptive progress step: ~5% increments, minimum 100.
+	step := total / 20
+	if step < 100 {
+		step = 100
+	}
+
+	batch := blevIdx.NewBatch()
 	for i, name := range idx.names {
 		parts := parseModuleName(name)
 
@@ -207,13 +250,18 @@ func NewIndex(dir string) (*Index, error) {
 			Content:  idx.contentByName[name],
 		}
 
-		if err := blevIdx.Index(name, doc); err != nil {
-			blevIdx.Close()
-			return nil, fmt.Errorf("indexing module %q: %w", name, err)
+		batch.Index(name, doc)
+
+		if (i+1)%batchSize == 0 || i+1 == total {
+			if err := blevIdx.Batch(batch); err != nil {
+				blevIdx.Close()
+				return nil, fmt.Errorf("indexing batch: %w", err)
+			}
+			batch = blevIdx.NewBatch()
 		}
 
-		// Print progress every 500 modules.
-		if (i+1)%500 == 0 || i+1 == total {
+		// Print adaptive progress.
+		if (i+1)%step == 0 || i+1 == total {
 			fmt.Fprintf(os.Stderr, "\rIndexing BSL modules... %d/%d", i+1, total)
 		}
 	}
