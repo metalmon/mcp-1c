@@ -134,7 +134,7 @@ func TestNewSearchCodeHandler(t *testing.T) {
 	mkBSL(t, dir, "Catalogs/Номенклатура/Ext/ObjectModule.bsl",
 		"Строка1\nСтрока2\nПроцедура ОбновитьЦены()\n    // обновление цен\nКонецПроцедуры\n")
 
-	index, err := dump.NewIndex(dir)
+	index, err := dump.NewIndex(dir, false)
 	if err != nil {
 		t.Fatalf("NewIndex: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestNewSearchCodeHandler_WithFilters(t *testing.T) {
 	mkBSL(t, dir, "Documents/Тест/Ext/ObjectModule.bsl",
 		"Процедура ОбщаяЛогика()\nКонецПроцедуры\n")
 
-	index, err := dump.NewIndex(dir)
+	index, err := dump.NewIndex(dir, false)
 	if err != nil {
 		t.Fatalf("NewIndex: %v", err)
 	}

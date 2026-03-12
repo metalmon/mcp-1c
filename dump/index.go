@@ -165,72 +165,58 @@ type loadedModule struct {
 }
 
 // NewIndex walks the dump directory, loads all .bsl files in parallel and builds
-// an in-memory Bleve index using batch operations. Progress is printed to stderr.
-func NewIndex(dir string) (*Index, error) {
+// a Bleve index. The index is cached on disk for fast subsequent opens.
+// If reindex is true, any existing cache is discarded and rebuilt from scratch.
+// Progress is printed to stderr.
+func NewIndex(dir string, reindex bool) (*Index, error) {
 	idx := &Index{
 		dir:           dir,
 		contentByName: make(map[string]string),
 	}
 
-	// Phase 1: collect all .bsl file paths (fast directory walk, no file I/O).
-	var paths []string
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".bsl") {
-			return nil
-		}
-		paths = append(paths, path)
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("walking dump directory: %w", err)
-	}
+	// Determine cache path; fall back to in-memory if it fails.
+	cpath, cacheErr := cachePath(dir)
+	useCache := cacheErr == nil
 
-	// Phase 2: read files in parallel using a worker pool.
-	results := make(chan loadedModule, len(paths))
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, runtime.NumCPU())
+	// Try to open existing cache.
+	if useCache && !reindex {
+		if blevIdx, err := bleve.Open(cpath); err == nil {
+			idx.index = blevIdx
 
-	for _, p := range paths {
-		wg.Add(1)
-		go func(path string) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return // skip unreadable files
+			// Load contentByName from .bsl files (needed for regex/exact mode).
+			if err := idx.loadBSLFiles(dir); err != nil {
+				blevIdx.Close()
+				return nil, err
 			}
-			rel, err := filepath.Rel(dir, path)
-			if err != nil {
-				return
-			}
-			name := bslPathToModuleName(rel)
-			results <- loadedModule{name: name, content: string(data)}
-		}(p)
+			fmt.Fprintf(os.Stderr, "Opened cached index for %d BSL modules\n", len(idx.names))
+			return idx, nil
+		}
 	}
 
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
+	// No usable cache — full build required.
 
-	// Collect results from workers.
-	for m := range results {
-		idx.names = append(idx.names, m.name)
-		idx.contentByName[m.name] = m.content
+	// Load all .bsl file contents.
+	if err := idx.loadBSLFiles(dir); err != nil {
+		return nil, err
 	}
 
-	// Phase 3: build Bleve in-memory index with batch operations.
+	// Prepare on-disk or in-memory Bleve index path.
+	indexPath := "" // in-memory fallback
+	if useCache {
+		// Remove stale cache if it exists.
+		os.RemoveAll(cpath)
+		if err := os.MkdirAll(filepath.Dir(cpath), 0o755); err == nil {
+			indexPath = cpath
+		}
+	}
+
+	// Build Bleve index with batch operations.
 	// Reduce GC pressure during bulk indexing.
 	oldGC := debug.SetGCPercent(200)
 	defer debug.SetGCPercent(oldGC)
 
 	bslMapping := buildBSLMapping()
-	blevIdx, err := bleve.NewUsing("", bslMapping, "scorch", "scorch", nil)
+	blevIdx, err := bleve.NewUsing(indexPath, bslMapping, "scorch", "scorch", nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating bleve index: %w", err)
 	}
@@ -276,6 +262,64 @@ func NewIndex(dir string) (*Index, error) {
 	}
 
 	return idx, nil
+}
+
+// loadBSLFiles walks the dump directory and reads all .bsl files in parallel,
+// populating idx.names and idx.contentByName.
+func (idx *Index) loadBSLFiles(dir string) error {
+	// Phase 1: collect all .bsl file paths (fast directory walk, no file I/O).
+	var paths []string
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".bsl") {
+			return nil
+		}
+		paths = append(paths, path)
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("walking dump directory: %w", err)
+	}
+
+	// Phase 2: read files in parallel using a worker pool.
+	results := make(chan loadedModule, len(paths))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, runtime.NumCPU())
+
+	for _, p := range paths {
+		wg.Add(1)
+		go func(path string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return // skip unreadable files
+			}
+			rel, err := filepath.Rel(dir, path)
+			if err != nil {
+				return
+			}
+			name := bslPathToModuleName(rel)
+			results <- loadedModule{name: name, content: string(data)}
+		}(p)
+	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results from workers.
+	for m := range results {
+		idx.names = append(idx.names, m.name)
+		idx.contentByName[m.name] = m.content
+	}
+
+	return nil
 }
 
 // moduleNameParts holds the parsed components of a human-readable module name.

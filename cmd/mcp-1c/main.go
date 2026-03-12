@@ -28,6 +28,7 @@ func main() {
 	user := flag.String("user", "", "1C HTTP service user")
 	password := flag.String("password", "", "1C HTTP service password")
 	dumpDir := flag.String("dump", "", "Path to DumpConfigToFiles output (enables search_code tool)")
+	reindex := flag.Bool("reindex", false, "Force rebuild of search index cache")
 	installDB := flag.String("install", "", "Install extension into 1C database at given path")
 	serverMode := flag.Bool("server", false, `Treat --install value as server connection string (server\database)`)
 	platformPath := flag.String("platform", "", "Path to 1C platform executable (auto-detected if omitted)")
@@ -67,7 +68,7 @@ func main() {
 	var dumpIndex *dump.Index
 	if *dumpDir != "" {
 		var err error
-		dumpIndex, err = dump.NewIndex(*dumpDir)
+		dumpIndex, err = dump.NewIndex(*dumpDir, *reindex)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "loading dump from %s: %v\n", *dumpDir, err)
 			os.Exit(1)

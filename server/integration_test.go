@@ -196,7 +196,7 @@ func setupIntegration(t *testing.T) (*mcp.ClientSession, func()) {
 	mkBSL(t, dumpDir, "Documents/ПоступлениеТоваровУслуг/Ext/ObjectModule.bsl",
 		"Процедура ОбработкаПроведения(Отказ)\n\t// Проведение поступления\nКонецПроцедуры\n")
 
-	dumpIndex, err := dump.NewIndex(dumpDir)
+	dumpIndex, err := dump.NewIndex(dumpDir, false)
 	if err != nil {
 		mock.Close()
 		t.Fatalf("NewIndex: %v", err)
