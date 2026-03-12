@@ -1,8 +1,13 @@
 package dump
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"testing"
+	"time"
+
+	"github.com/blevesearch/bleve/v2"
 )
 
 // realDumpDir points to a real 1C dump for benchmarking.
@@ -19,10 +24,19 @@ func loadTestModules(b *testing.B) ([]string, map[string]string) {
 		b.Skipf("dump directory %s does not exist, skipping benchmark", realDumpDir)
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	idx := &Index{
 		dir:           realDumpDir,
+		alias:         bleve.NewIndexAlias(),
 		contentByName: make(map[string]string),
+		ctx:           ctx,
+		cancel:        cancel,
+		done:          make(chan struct{}),
 	}
+	defer close(idx.done)
+
 	if err := idx.loadBSLFiles(realDumpDir); err != nil {
 		b.Fatalf("loadBSLFiles: %v", err)
 	}
@@ -69,6 +83,43 @@ func BenchmarkBuildIndex_Builder(b *testing.B) {
 	}
 }
 
+// BenchmarkBuildIndex_Sharded measures parallel shard build performance.
+func BenchmarkBuildIndex_Sharded(b *testing.B) {
+	names, contentByName := loadTestModules(b)
+	n := shardCount(len(names))
+	b.Logf("Shard count: %d (for %d modules)", n, len(names))
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for b.Loop() {
+		dir := b.TempDir()
+		groups := splitByHash(names, n)
+
+		type result struct {
+			idx bleve.Index
+			err error
+		}
+		results := make(chan result, n)
+
+		for i := range n {
+			go func(shardID int) {
+				path := dir + fmt.Sprintf("/shard_%d", shardID)
+				idx, err := buildShard(path, groups[shardID], contentByName, shardID, n)
+				results <- result{idx: idx, err: err}
+			}(i)
+		}
+
+		for range n {
+			r := <-results
+			if r.err != nil {
+				b.Fatalf("buildShard: %v", r.err)
+			}
+			r.idx.Close()
+		}
+	}
+}
+
 // openRealIndex builds a fresh index from the real dump for search benchmarks.
 func openRealIndex(b *testing.B) *Index {
 	b.Helper()
@@ -81,8 +132,19 @@ func openRealIndex(b *testing.B) *Index {
 	if err != nil {
 		b.Fatalf("NewIndex: %v", err)
 	}
-	b.Logf("Index built: %d modules", idx.ModuleCount())
 
+	deadline := time.After(5 * time.Minute)
+	for !idx.Ready() {
+		select {
+		case <-deadline:
+			idx.Close()
+			b.Fatal("timed out waiting for index build")
+		default:
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+
+	b.Logf("Index built: %d modules, %d shards", idx.ModuleCount(), len(idx.shards))
 	return idx
 }
 
@@ -102,6 +164,27 @@ func BenchmarkSearch_Smart(b *testing.B) {
 		})
 		if err != nil {
 			b.Fatalf("Search smart: %v", err)
+		}
+	}
+}
+
+// BenchmarkSearch_Smart_Sharded measures search through IndexAlias with multiple shards.
+func BenchmarkSearch_Smart_Sharded(b *testing.B) {
+	idx := openRealIndex(b)
+	defer idx.Close()
+	b.Logf("Shards: %d, modules: %d", len(idx.shards), idx.ModuleCount())
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for b.Loop() {
+		_, _, err := idx.Search(SearchParams{
+			Query: "Процедура ПередЗаписью",
+			Mode:  SearchModeSmart,
+			Limit: 50,
+		})
+		if err != nil {
+			b.Fatalf("Search: %v", err)
 		}
 	}
 }
