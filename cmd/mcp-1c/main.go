@@ -24,6 +24,7 @@ var version = "dev"
 const expectedExtensionVersion = "0.4.0"
 
 func main() {
+	showVersion := flag.Bool("version", false, "print version and exit")
 	baseURL := flag.String("base", "", "Base URL of 1C HTTP service")
 	user := flag.String("user", "", "1C HTTP service user")
 	password := flag.String("password", "", "1C HTTP service password")
@@ -35,6 +36,11 @@ func main() {
 	dbUser := flag.String("db-user", "", "1C database user for DESIGNER (install mode)")
 	dbPassword := flag.String("db-password", "", "1C database password for DESIGNER (install mode)")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println("mcp-1c version " + version)
+		os.Exit(0)
+	}
 
 	// Install mode.
 	if *installDB != "" {
