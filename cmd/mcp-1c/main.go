@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
@@ -102,7 +103,8 @@ func checkExtensionVersion(client *onec.Client) {
 		return
 	}
 	if ver.Version != expectedExtensionVersion {
-		fmt.Fprintf(os.Stderr, "WARNING: Extension version %s, expected %s. Update: mcp-1c --install \"path\\to\\db\"\n",
-			ver.Version, expectedExtensionVersion)
+		slog.Warn("Extension version mismatch",
+			"got", ver.Version, "expected", expectedExtensionVersion,
+			"hint", `Update: mcp-1c --install "path\to\db"`)
 	}
 }

@@ -3,7 +3,7 @@ package dump
 import (
 	"fmt"
 	"hash/fnv"
-	"os"
+	"log/slog"
 	"runtime"
 
 	"github.com/blevesearch/bleve/v2"
@@ -56,7 +56,6 @@ func buildShard(path string, names []string, contentByName map[string]string, sh
 
 	total := len(names)
 	const batchSize = 5000
-	step := max(total/10, 100)
 
 	batch := blevIdx.NewBatch()
 	for i, name := range names {
@@ -77,12 +76,9 @@ func buildShard(path string, names []string, contentByName map[string]string, sh
 			batch = blevIdx.NewBatch()
 		}
 
-		if (i+1)%step == 0 || i+1 == total {
-			fmt.Fprintf(os.Stderr, "\rShard %d/%d: indexed %d/%d modules", shardID+1, totalShards, i+1, total)
-		}
 	}
 	if total > 0 {
-		fmt.Fprintln(os.Stderr)
+		slog.Info("Shard indexed", "shard", shardID+1, "totalShards", totalShards, "modules", total)
 	}
 
 	return blevIdx, nil

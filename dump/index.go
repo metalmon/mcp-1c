@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -254,7 +255,7 @@ func NewIndex(dir string, reindex bool) (*Index, error) {
 					defer close(idx.done)
 					if err := idx.loadFromManifestAndDiff(cpath); err != nil {
 						// Fallback: walk filesystem if manifest-based load fails.
-						fmt.Fprintf(os.Stderr, "Manifest load failed (%v), falling back to walk\n", err)
+						slog.Warn("Manifest load failed, falling back to walk", "error", err)
 						if err := idx.loadBSLPaths(dir); err != nil {
 							idx.setBuildErr(err)
 							return
@@ -263,8 +264,8 @@ func NewIndex(dir string, reindex bool) (*Index, error) {
 
 					idx.pathIndex = NewPathIndex(idx.names)
 					idx.ready.Store(true)
-					fmt.Fprintf(os.Stderr, "Opened cached index (%d shards) for %d BSL modules\n",
-						len(shards), len(idx.names))
+					slog.Info("Opened cached index",
+						"shards", len(shards), "modules", len(idx.names))
 				}()
 				return idx, nil
 			}
@@ -298,13 +299,13 @@ func (idx *Index) buildShards(cpath string, useCache bool) {
 	if total == 0 {
 		idx.pathIndex = NewPathIndex(nil)
 		idx.ready.Store(true)
-		fmt.Fprintln(os.Stderr, "No BSL modules found, index is empty")
+		slog.Info("No BSL modules found, index is empty")
 		return
 	}
 
 	n := shardCount(total)
 	groups := splitByHash(idx.names, n)
-	fmt.Fprintf(os.Stderr, "Building index: %d modules, %d shards\n", total, n)
+	slog.Info("Building index", "modules", total, "shards", n)
 
 	var basePath string
 	if cpath != "" && useCache {
@@ -387,7 +388,7 @@ func (idx *Index) buildShards(cpath string, useCache bool) {
 		idx.saveManifest(cpath)
 	}
 
-	fmt.Fprintf(os.Stderr, "Index ready: %d modules in %d shards\n", total, n)
+	slog.Info("Index ready", "modules", total, "shards", n)
 }
 
 // openCachedShards opens pre-built Bleve shard indexes from disk.
@@ -426,10 +427,7 @@ func buildIndexBuilder(indexPath string, names []string, contentByName map[strin
 
 	total := len(names)
 
-	// Adaptive progress step: ~5% increments, minimum 100.
-	step := max(total/20, 100)
-
-	for i, name := range names {
+	for _, name := range names {
 		parts := parseModuleName(name)
 
 		doc := bslDocument{
@@ -443,13 +441,9 @@ func buildIndexBuilder(indexPath string, names []string, contentByName map[strin
 			builder.Close()
 			return nil, fmt.Errorf("builder indexing doc %q: %w", name, err)
 		}
-
-		if (i+1)%step == 0 || i+1 == total {
-			fmt.Fprintf(os.Stderr, "\rIndexing BSL modules... %d/%d", i+1, total)
-		}
 	}
 	if total > 0 {
-		fmt.Fprintln(os.Stderr, " done")
+		slog.Info("Indexing BSL modules done", "count", total)
 	}
 
 	if err := builder.Close(); err != nil {
@@ -484,9 +478,6 @@ func buildIndexBatch(indexPath string, names []string, contentByName map[string]
 	total := len(names)
 	const batchSize = 5000
 
-	// Adaptive progress step: ~5% increments, minimum 100.
-	step := max(total/20, 100)
-
 	batch := blevIdx.NewBatch()
 	for i, name := range names {
 		parts := parseModuleName(name)
@@ -508,12 +499,9 @@ func buildIndexBatch(indexPath string, names []string, contentByName map[string]
 			batch = blevIdx.NewBatch()
 		}
 
-		if (i+1)%step == 0 || i+1 == total {
-			fmt.Fprintf(os.Stderr, "\rIndexing BSL modules... %d/%d", i+1, total)
-		}
 	}
 	if total > 0 {
-		fmt.Fprintln(os.Stderr, " done")
+		slog.Info("Indexing BSL modules done", "count", total)
 	}
 
 	return blevIdx, nil
@@ -1052,7 +1040,7 @@ func (idx *Index) loadFromManifestAndDiff(cacheDir string) error {
 		docID := entry.DocID
 		si := shardForID(docID, len(idx.shards))
 		if err := idx.shards[si].Delete(docID); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to delete %q from shard: %v\n", docID, err)
+			slog.Warn("Failed to delete from shard", "docID", docID, "error", err)
 		}
 		delete(idx.contentByName, docID)
 		delete(idx.pathByName, docID)
@@ -1070,7 +1058,7 @@ func (idx *Index) loadFromManifestAndDiff(cacheDir string) error {
 		absPath := filepath.Join(idx.dir, filepath.FromSlash(relPath))
 		data, err := os.ReadFile(absPath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: cannot read %q: %v\n", relPath, err)
+			slog.Warn("Cannot read file", "path", relPath, "error", err)
 			continue
 		}
 		docID := bslPathToModuleName(relPath)
@@ -1086,7 +1074,7 @@ func (idx *Index) loadFromManifestAndDiff(cacheDir string) error {
 
 		si := shardForID(docID, len(idx.shards))
 		if err := idx.shards[si].Index(docID, doc); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to index %q in shard: %v\n", docID, err)
+			slog.Warn("Failed to index in shard", "docID", docID, "error", err)
 			continue
 		}
 
@@ -1102,8 +1090,7 @@ func (idx *Index) loadFromManifestAndDiff(cacheDir string) error {
 	}
 
 	if len(diff.Added) > 0 || len(diff.Modified) > 0 || len(diff.Deleted) > 0 {
-		fmt.Fprintf(os.Stderr, "Incremental update: +%d added, ~%d modified, -%d deleted\n",
-			len(diff.Added), len(diff.Modified), len(diff.Deleted))
+		slog.Info("Incremental update", "added", len(diff.Added), "modified", len(diff.Modified), "deleted", len(diff.Deleted))
 	}
 
 	// Save updated manifest.
@@ -1165,7 +1152,7 @@ func (idx *Index) applyIncrementalUpdate(cacheDir string) error {
 		docID := entry.DocID
 		si := shardForID(docID, len(idx.shards))
 		if err := idx.shards[si].Delete(docID); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to delete %q from shard: %v\n", docID, err)
+			slog.Warn("Failed to delete from shard", "docID", docID, "error", err)
 		}
 		idx.contentMu.Lock()
 		delete(idx.contentByName, docID)
@@ -1188,7 +1175,7 @@ func (idx *Index) applyIncrementalUpdate(cacheDir string) error {
 		absPath := filepath.Join(idx.dir, filepath.FromSlash(relPath))
 		data, err := os.ReadFile(absPath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: cannot read %q: %v\n", relPath, err)
+			slog.Warn("Cannot read file", "path", relPath, "error", err)
 			continue
 		}
 		docID := bslPathToModuleName(relPath)
@@ -1204,7 +1191,7 @@ func (idx *Index) applyIncrementalUpdate(cacheDir string) error {
 
 		si := shardForID(docID, len(idx.shards))
 		if err := idx.shards[si].Index(docID, doc); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to index %q in shard: %v\n", docID, err)
+			slog.Warn("Failed to index in shard", "docID", docID, "error", err)
 			continue
 		}
 
@@ -1227,8 +1214,7 @@ func (idx *Index) applyIncrementalUpdate(cacheDir string) error {
 		idx.contentMu.Unlock()
 	}
 
-	fmt.Fprintf(os.Stderr, "Incremental update: +%d added, ~%d modified, -%d deleted\n",
-		len(diff.Added), len(diff.Modified), len(diff.Deleted))
+	slog.Info("Incremental update", "added", len(diff.Added), "modified", len(diff.Modified), "deleted", len(diff.Deleted))
 
 	// Save updated manifest.
 	idx.saveManifest(cacheDir)
@@ -1240,11 +1226,11 @@ func (idx *Index) applyIncrementalUpdate(cacheDir string) error {
 func (idx *Index) saveManifest(cacheDir string) {
 	manifest, err := buildManifest(idx.dir, idx.pathToDocID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: cannot build manifest: %v\n", err)
+		slog.Warn("Cannot build manifest", "error", err)
 		return
 	}
 	if err := manifest.Save(cacheDir); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: cannot save manifest: %v\n", err)
+		slog.Warn("Cannot save manifest", "error", err)
 	}
 }
 
