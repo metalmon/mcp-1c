@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log"
 	"log/slog"
 	"os"
 	"time"
@@ -25,6 +26,8 @@ var version = "dev"
 const expectedExtensionVersion = "0.4.0"
 
 func main() {
+	log.SetOutput(os.Stderr)
+
 	showVersion := flag.Bool("version", false, "print version and exit")
 	baseURL := flag.String("base", "", "Base URL of 1C HTTP service")
 	user := flag.String("user", "", "1C HTTP service user")
@@ -70,7 +73,7 @@ func main() {
 
 	client := onec.NewClient(cfg.BaseURL, cfg.User, cfg.Password)
 
-	checkExtensionVersion(client)
+	go checkExtensionVersion(client)
 
 	var dumpIndex *dump.Index
 	if *dumpDir != "" {
