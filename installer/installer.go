@@ -92,7 +92,31 @@ func Install(srcFS embed.FS, dbPath string, serverMode bool, platformExe, dbUser
 		"/LoadConfigFromFiles", extDir,
 		"-Extension", extensionName,
 	); err != nil {
-		return fmt.Errorf("loading extension config: %w", err)
+		// When the base configuration does not have DefaultRunMode set to
+		// ManagedApplication, DESIGNER rejects the extension with a controlled
+		// property mismatch error mentioning "ОсновнойРежимЗапуска".
+		// Remove the property and retry.
+		if strings.Contains(err.Error(), "ОсновнойРежимЗапуска") {
+			fmt.Println("Retrying without DefaultRunMode property (controlled property mismatch)...")
+			cfgPath := filepath.Join(extDir, "Configuration.xml")
+			cfgData, readErr := os.ReadFile(cfgPath)
+			if readErr != nil {
+				return fmt.Errorf("loading extension config: %w", err)
+			}
+			defaultRunModeRe := regexp.MustCompile(`\s*<DefaultRunMode>[^<]*</DefaultRunMode>`)
+			cfgData = defaultRunModeRe.ReplaceAll(cfgData, nil)
+			if writeErr := os.WriteFile(cfgPath, cfgData, 0o644); writeErr != nil {
+				return fmt.Errorf("loading extension config: %w", err)
+			}
+			if retryErr := runDesigner(platformExe, dbPath, serverMode, dbUser, dbPassword,
+				"/LoadConfigFromFiles", extDir,
+				"-Extension", extensionName,
+			); retryErr != nil {
+				return fmt.Errorf("loading extension config (retry without DefaultRunMode): %w", retryErr)
+			}
+		} else {
+			return fmt.Errorf("loading extension config: %w", err)
+		}
 	}
 
 	// Apply extension to the database (separate call required).
