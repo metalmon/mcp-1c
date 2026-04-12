@@ -86,6 +86,14 @@ func Install(srcFS embed.FS, dbPath string, serverMode bool, platformExe, dbUser
 		return fmt.Errorf("patching format version: %w", err)
 	}
 
+	// Remove existing extension if present (ignore error: extension may not exist yet).
+	if delErr := runDesigner(platformExe, dbPath, serverMode, dbUser, dbPassword,
+		"/ManageCfgExtensions", "-delete",
+		"-Extension", extensionName,
+	); delErr == nil {
+		fmt.Println("Removed old extension:", extensionName)
+	}
+
 	// Load extension XML into extension configuration.
 	fmt.Println("Loading extension into database...")
 	if err := runDesigner(platformExe, dbPath, serverMode, dbUser, dbPassword,
@@ -128,6 +136,27 @@ func Install(srcFS embed.FS, dbPath string, serverMode bool, platformExe, dbUser
 				"/LoadConfigFromFiles", extDir,
 				"-Extension", extensionName,
 			)
+		}
+
+		// Old configurations (compat mode 8.3.13 and below) reject extensions
+		// that override inherited properties. Strip all controlled properties
+		// from the extension Configuration.xml and retry.
+		if err != nil && strings.Contains(strings.ToLower(err.Error()), "переопределение свойств заимствованных объектов") {
+			fmt.Println("Retrying without inherited properties (old compat mode)...")
+			cfgPath := filepath.Join(extDir, "Configuration.xml")
+			if patchErr := stripInheritedProperties(cfgPath); patchErr != nil {
+				return fmt.Errorf("loading extension config: strip inherited properties: %w", patchErr)
+			}
+			err = runDesigner(platformExe, dbPath, serverMode, dbUser, dbPassword,
+				"/LoadConfigFromFiles", extDir,
+				"-Extension", extensionName,
+			)
+			if err == nil {
+				fmt.Fprintln(os.Stderr, "ПРЕДУПРЕЖДЕНИЕ: Конфигурация использует режим совместимости 8.3.13 или ниже, роль MCP_ОсновнаяРоль не назначена автоматически.")
+				fmt.Fprintln(os.Stderr, "Для работы HTTP-сервиса назначьте роль вручную:")
+				fmt.Fprintln(os.Stderr, "  Конфигуратор > Администрирование > Пользователи > [пользователь] > Роли > MCP_ОсновнаяРоль")
+				fmt.Fprintln(os.Stderr, "Если у пользователя есть роль \"Полные права\", дополнительных действий не требуется.")
+			}
 		}
 
 		if err != nil {
@@ -347,6 +376,34 @@ func patchFormatVersion(dir, targetVersion string) error {
 
 		return os.WriteFile(path, patched, 0o644)
 	})
+}
+
+// inheritedPropertyRe matches XML elements that may conflict with inherited base
+// configuration properties in old compat modes (8.3.13 and below). Each element
+// is matched including optional surrounding whitespace so the resulting XML stays
+// well-formed. Elements may be single-line or span multiple lines.
+var inheritedPropertyRe = regexp.MustCompile(
+	`(?s)\s*<(?:` +
+		`DefaultRunMode|UsePurposes|ScriptVariant|DefaultRoles|` +
+		`Vendor|Version|DefaultLanguage|BriefInformation|DetailedInformation|` +
+		`Copyright|VendorInformationAddress|ConfigurationInformationAddress` +
+		`)>.*?</(?:` +
+		`DefaultRunMode|UsePurposes|ScriptVariant|DefaultRoles|` +
+		`Vendor|Version|DefaultLanguage|BriefInformation|DetailedInformation|` +
+		`Copyright|VendorInformationAddress|ConfigurationInformationAddress` +
+		`)>`,
+)
+
+// stripInheritedProperties removes XML elements from Configuration.xml that
+// override inherited properties of the base configuration. This is needed for
+// old configurations (compat mode 8.3.13 and below) that reject such overrides.
+func stripInheritedProperties(cfgPath string) error {
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return err
+	}
+	patched := inheritedPropertyRe.ReplaceAll(data, nil)
+	return os.WriteFile(cfgPath, patched, 0o644)
 }
 
 // platformPatterns returns glob patterns for finding 1C platform binary on the current OS.

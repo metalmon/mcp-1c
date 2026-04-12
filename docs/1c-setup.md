@@ -69,7 +69,7 @@ mcp-1c --install /path/to/infobase
 3. Укажите имя (например `base`), отметьте `MCPService`
 4. Нажмите **Опубликовать**
 
-URL в этом случае: `http://localhost/base/hs/mcp`
+URL в этом случае: `http://localhost/base/hs/mcp-1c`
 
 > Подробнее о публикации через веб-сервер — в [документации 1С](https://its.1c.ru/db/v8317doc#bookmark:dev:TI000001540).
 
@@ -103,10 +103,10 @@ URL в этом случае: `http://localhost/base/hs/mcp`
 
 ```bash
 # Если публикация через Apache/IIS (способ 1):
-curl http://localhost/base/hs/mcp/version
+curl http://localhost/base/hs/mcp-1c/version
 
 # Если встроенный HTTP-сервер /HTTPPort (способ 2):
-curl http://localhost:8080/hs/mcp/version
+curl http://localhost:8080/hs/mcp-1c/version
 ```
 
 Ожидаемый ответ: `{"version":"0.4.0"}`
@@ -127,7 +127,7 @@ curl http://localhost:8080/hs/mcp/version
 **"address already in use"**
 Порт занят. Используйте другой: `/HTTPPort 9090` и обновите URL в конфиге AI-клиента.
 
-**"404" при обращении к /hs/mcp/...**
+**"404" при обращении к /hs/mcp-1c/...**
 - Расширение не установлено или не активно. Проверьте: Конфигуратор -> Расширения -> галочка "Активно" напротив MCP_HTTPService.
 - Конфигурация БД не обновлена. Нажмите F7 в Конфигураторе.
 
