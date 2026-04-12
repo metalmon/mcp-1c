@@ -14,6 +14,8 @@ type Function struct {
 }
 
 // BuiltinFunctions is the reference of 1C platform built-in functions.
+//
+//garble:ignore
 var BuiltinFunctions = []Function{
 	// ── Строковые ──
 
