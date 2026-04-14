@@ -5,6 +5,7 @@ import (
 	"hash/fnv"
 	"log/slog"
 	"runtime"
+	"sync/atomic"
 
 	"github.com/blevesearch/bleve/v2"
 	"github.com/blevesearch/bleve/v2/mapping"
@@ -46,7 +47,7 @@ func splitByHash(items []string, n int) [][]string {
 // It indexes the provided names using content from contentByName.
 // shardID and totalShards are used for progress reporting.
 // The caller must supply a pre-built bslMapping to avoid rebuilding it per shard.
-func buildShard(path string, names []string, contentByName map[string]string, shardID, totalShards int, bslMapping *mapping.IndexMappingImpl) (bleve.Index, error) {
+func buildShard(path string, names []string, contentByName map[string]string, shardID, totalShards int, bslMapping *mapping.IndexMappingImpl, progress *atomic.Int64) (bleve.Index, error) {
 	blevIdx, err := bleve.NewUsing(path, bslMapping, "scorch", "scorch", map[string]any{
 		"unsafe_batch": true,
 	})
@@ -67,6 +68,7 @@ func buildShard(path string, names []string, contentByName map[string]string, sh
 			Content:  contentByName[name],
 		}
 		batch.Index(name, doc)
+		progress.Add(1)
 
 		if (i+1)%batchSize == 0 || i+1 == total {
 			if err := blevIdx.Batch(batch); err != nil {

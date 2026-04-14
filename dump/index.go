@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/blevesearch/bleve/v2"
 	scorchIndex "github.com/blevesearch/bleve/v2/index/scorch"
@@ -259,7 +260,7 @@ func NewIndex(dir, cacheDir string, reindex bool) (*Index, error) {
 					idx.ready.Store(true)
 					slog.Info("Opened cached index",
 						"shards", len(shards), "modules", len(idx.names))
-					fmt.Fprintf(os.Stderr, "Индекс загружен из кэша: %d модулей\n", len(idx.names))
+					fmt.Fprintf(os.Stderr, "[%s] Индекс загружен из кэша: %d модулей\n", time.Now().Format("15:04:05"), len(idx.names))
 				}()
 				return idx, nil
 			}
@@ -301,7 +302,7 @@ func (idx *Index) buildShards(cpath string, useCache bool) {
 	n := shardCount(total)
 	groups := splitByHash(idx.names, n)
 	slog.Info("Building index", "modules", total, "shards", n)
-	fmt.Fprintf(os.Stderr, "Индексация: найдено %d модулей...\n", total)
+	fmt.Fprintf(os.Stderr, "[%s] Индексация: найдено %d модулей...\n", time.Now().Format("15:04:05"), total)
 
 	var basePath string
 	if cpath != "" && useCache {
@@ -322,12 +323,32 @@ func (idx *Index) buildShards(cpath string, useCache bool) {
 	oldGC := debug.SetGCPercent(-1)
 	defer debug.SetGCPercent(oldGC)
 
+	start := time.Now()
+	var indexed atomic.Int64
+
 	type shardResult struct {
 		index bleve.Index
 		id    int
 		err   error
 	}
 	results := make(chan shardResult, n)
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	stopProgress := make(chan struct{})
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				done := indexed.Load()
+				pct := done * 100 / int64(total)
+				fmt.Fprintf(os.Stderr, "\rИндексация: %d/%d (%d%%)   ", done, total, pct)
+			case <-stopProgress:
+				fmt.Fprintf(os.Stderr, "\r%80s\r", "")
+				return
+			}
+		}
+	}()
 
 	for i := range n {
 		go func(shardID int) {
@@ -343,7 +364,7 @@ func (idx *Index) buildShards(cpath string, useCache bool) {
 				shardPath = filepath.Join(basePath, fmt.Sprintf("shard_%d", shardID))
 			}
 
-			shard, err := buildShard(shardPath, groups[shardID], idx.contentByName, shardID, n, bslMapping)
+			shard, err := buildShard(shardPath, groups[shardID], idx.contentByName, shardID, n, bslMapping, &indexed)
 			results <- shardResult{index: shard, id: shardID, err: err}
 		}(i)
 	}
@@ -361,6 +382,7 @@ func (idx *Index) buildShards(cpath string, useCache bool) {
 			shards[res.id] = res.index
 		}
 	}
+	close(stopProgress)
 	if firstErr != nil {
 		for _, s := range shards {
 			if s != nil {
@@ -385,7 +407,7 @@ func (idx *Index) buildShards(cpath string, useCache bool) {
 	}
 
 	slog.Info("Index ready", "modules", total, "shards", n)
-	fmt.Fprintf(os.Stderr, "Индексация завершена: %d модулей готово к поиску\n", total)
+	fmt.Fprintf(os.Stderr, "Индексация завершена за %.1fс: %d модулей готово к поиску\n", time.Since(start).Seconds(), total)
 }
 
 // openCachedShards opens pre-built Bleve shard indexes from disk.
