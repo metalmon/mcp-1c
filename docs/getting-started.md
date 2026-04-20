@@ -259,6 +259,31 @@ claude mcp remove 1c
 
 Или добавьте через интерфейс: **Cursor Settings → Tools & MCP → Add new MCP Server**.
 
+Если в 1С включена аутентификация HTTP-сервиса, добавьте `--user` и `--password` в `args`:
+
+```json
+{
+  "mcpServers": {
+    "1c": {
+      "command": "C:\\путь\\к\\mcp-1c.exe",
+      "args": [
+        "--base", "http://localhost:8080/hs/mcp-1c",
+        "--user", "mcp",
+        "--password", "пароль"
+      ]
+    }
+  }
+}
+```
+
+Для локальной разработки через `Makefile`:
+
+```bash
+make cursor-install CURSOR_SERVER_NAME=1c-business CURSOR_TOOLSET=business CURSOR_PROFILE=auto MCP_USER=mcp MCP_PASSWORD=пароль
+```
+
+Для прод-окружений вместо `--password` в JSON используйте `env` и передавайте секрет через переменные окружения (`MCP_1C_USER`, `MCP_1C_PASSWORD`).
+
 > **Ограничение:** Cursor оптимально работает при общем количестве до ~40 MCP-инструментов по всем серверам. У mcp-1c всего 9 инструментов, так что проблем не будет, но если у вас подключено много других серверов — отключайте лишние.
 
 ---

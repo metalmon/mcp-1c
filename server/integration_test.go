@@ -19,23 +19,23 @@ import (
 // mock1CHandler simulates the 1C HTTP service endpoints.
 func mock1CHandler() http.Handler {
 	metadata := map[string][]string{
-		"Справочники":            {"Контрагенты", "Номенклатура"},
-		"Документы":              {"РеализацияТоваровУслуг"},
-		"Перечисления":           {"СтавкиНДС", "ВидыНоменклатуры"},
-		"Обработки":              {"ЗагрузкаДанныхИзФайла"},
-		"Отчеты":                 {"ОборотноСальдоваяВедомость"},
-		"РегистрыСведений":       {"КурсыВалют"},
-		"РегистрыНакопления":     {"ТоварыНаСкладах"},
-		"РегистрыБухгалтерии":    {},
-		"ПланыСчетов":            {"Хозрасчетный"},
+		"Справочники":             {"Контрагенты", "Номенклатура"},
+		"Документы":               {"РеализацияТоваровУслуг"},
+		"Перечисления":            {"СтавкиНДС", "ВидыНоменклатуры"},
+		"Обработки":               {"ЗагрузкаДанныхИзФайла"},
+		"Отчеты":                  {"ОборотноСальдоваяВедомость"},
+		"РегистрыСведений":        {"КурсыВалют"},
+		"РегистрыНакопления":      {"ТоварыНаСкладах"},
+		"РегистрыБухгалтерии":     {},
+		"ПланыСчетов":             {"Хозрасчетный"},
 		"ПланыВидовХарактеристик": {"ВидыСубконтоХозрасчетные"},
-		"ПланыОбмена":            {"ОбменБухгалтерия"},
-		"ЖурналыДокументов":      {"ЖурналОпераций"},
-		"Константы":              {"ОсновнаяОрганизация"},
-		"ОбщиеМодули":            {"ОбщийМодуль1"},
-		"Роли":                   {"Администратор", "Бухгалтер"},
-		"Подсистемы":             {"Бухгалтерия"},
-		"HTTPСервисы":            {"MCPService"},
+		"ПланыОбмена":             {"ОбменБухгалтерия"},
+		"ЖурналыДокументов":       {"ЖурналОпераций"},
+		"Константы":               {"ОсновнаяОрганизация"},
+		"ОбщиеМодули":             {"ОбщийМодуль1"},
+		"Роли":                    {"Администратор", "Бухгалтер"},
+		"Подсистемы":              {"Бухгалтерия"},
+		"HTTPСервисы":             {"MCPService"},
 	}
 
 	objects := map[string]onec.ObjectStructure{
@@ -185,6 +185,10 @@ func mock1CHandler() http.Handler {
 
 // setupIntegration creates a mock 1C server and connected MCP client session.
 func setupIntegration(t *testing.T) (*mcp.ClientSession, func()) {
+	return setupIntegrationWithOptions(t, Options{})
+}
+
+func setupIntegrationWithOptions(t *testing.T, options Options) (*mcp.ClientSession, func()) {
 	t.Helper()
 
 	mock := httptest.NewServer(mock1CHandler())
@@ -215,7 +219,7 @@ func setupIntegration(t *testing.T) (*mcp.ClientSession, func()) {
 		}
 	}
 
-	srv := New("test", client, dumpIndex)
+	srv := New("test", client, dumpIndex, options)
 
 	ctx := context.Background()
 	ct, st := mcp.NewInMemoryTransports()
@@ -258,7 +262,8 @@ func TestIntegration_ListTools(t *testing.T) {
 	expected := []string{
 		"get_metadata_tree", "get_object_structure", "execute_query",
 		"search_code", "get_form_structure", "validate_query",
-		"get_event_log", "get_configuration_info", "bsl_syntax_help",
+		"get_event_log", "get_configuration_info", "read_counterparties",
+		"create_counterparty", "bsl_syntax_help",
 	}
 	for _, want := range expected {
 		if !toolNames[want] {
@@ -268,6 +273,52 @@ func TestIntegration_ListTools(t *testing.T) {
 
 	if len(result.Tools) != len(expected) {
 		t.Errorf("expected %d tools, got %d: %v", len(expected), len(result.Tools), toolNames)
+	}
+}
+
+func TestIntegration_ListToolsDeveloperOnly(t *testing.T) {
+	session, cleanup := setupIntegrationWithOptions(t, Options{
+		Toolset: ToolsetDeveloper,
+		Profile: "buh_3_0",
+	})
+	defer cleanup()
+
+	result, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools error: %v", err)
+	}
+
+	toolNames := make(map[string]bool)
+	for _, tool := range result.Tools {
+		toolNames[tool.Name] = true
+	}
+	if toolNames["read_counterparties"] || toolNames["create_counterparty"] {
+		t.Fatalf("business tools must be hidden in developer mode: %v", toolNames)
+	}
+	if !toolNames["get_metadata_tree"] {
+		t.Fatalf("developer tools expected in developer mode: %v", toolNames)
+	}
+}
+
+func TestIntegration_ListToolsBusinessUnsupportedProfile(t *testing.T) {
+	session, cleanup := setupIntegrationWithOptions(t, Options{
+		Toolset: ToolsetBusiness,
+		Profile: "unknown",
+	})
+	defer cleanup()
+
+	result, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools error: %v", err)
+	}
+
+	for _, tool := range result.Tools {
+		if tool.Name == "read_counterparties" || tool.Name == "create_counterparty" {
+			t.Fatalf("did not expect business tools for unsupported profile: %v", result.Tools)
+		}
+	}
+	if len(result.Tools) != 0 {
+		t.Fatalf("expected no tools for unsupported business profile, got %d", len(result.Tools))
 	}
 }
 
@@ -609,17 +660,17 @@ func TestIntegration_ListPrompts(t *testing.T) {
 	}
 
 	expected := map[string]bool{
-		"review_module":            false,
-		"write_posting":            false,
-		"optimize_query":           false,
-		"explain_config":           false,
-		"analyze_error":            false,
-		"find_duplicates":          false,
-		"write_report":             false,
-		"explain_object":           false,
-		"1c_query_syntax":          false,
-		"1c_metadata_navigation":   false,
-		"1c_development_workflow":  false,
+		"review_module":           false,
+		"write_posting":           false,
+		"optimize_query":          false,
+		"explain_config":          false,
+		"analyze_error":           false,
+		"find_duplicates":         false,
+		"write_report":            false,
+		"explain_object":          false,
+		"1c_query_syntax":         false,
+		"1c_metadata_navigation":  false,
+		"1c_development_workflow": false,
 	}
 
 	for _, p := range result.Prompts {

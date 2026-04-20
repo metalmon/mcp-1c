@@ -120,9 +120,13 @@ mcp-1c --install "srv-1c\buh_prod" --server --db-user Admin --db-password pass
 ```json
 {
   "mcpServers": {
-    "1c": {
+    "1c-dev": {
       "command": "/path/to/mcp-1c",
-      "args": ["--base", "http://localhost:8080/hs/mcp-1c"]
+      "args": ["--base", "http://localhost:8080/hs/mcp-1c", "--toolset", "developer"]
+    },
+    "1c-business": {
+      "command": "/path/to/mcp-1c",
+      "args": ["--base", "http://localhost:8080/hs/mcp-1c", "--toolset", "business", "--profile", "auto"]
     }
   }
 }
@@ -159,12 +163,32 @@ mcp-1c --install "srv-1c\buh_prod" --server --db-user Admin --db-password pass
 | `--password` | `MCP_1C_PASSWORD` | — | Пароль HTTP-сервиса |
 | `--dump` | — | — | Путь к выгрузке конфигурации (DumpConfigToFiles), включает инструмент search_code |
 | `--reindex` | — | — | Принудительная перестройка поискового индекса (игнорирует кеш) |
+| `--toolset` | — | `all` | Набор инструментов: `developer`, `business`, `all` |
+| `--profile` | — | `auto` | Профиль конфигурации для business tools: `auto`, `generic`, `buh_3_0`, `unknown` |
 | `--install` | — | — | Установить расширение в базу 1С по указанному пути |
 | `--server` | — | — | Режим клиент-серверной базы: `--install` принимает строку подключения `сервер\база` (например `srv-1c\buh_prod`) |
 | `--platform` | — | — | Путь к бинарнику 1С (автоопределение, если не указан) |
 | `--platform-version` | — | — | Версия платформы 1С (например `8.3.13`). Определяется автоматически из пути к платформе. Укажите вручную, если платформа установлена в нестандартный путь без информации о версии. Минимальная поддерживаемая версия: 8.3.10 |
 | `--db-user` | — | — | Пользователь базы 1С для DESIGNER (режим --install) |
 | `--db-password` | — | — | Пароль базы 1С для DESIGNER (режим --install) |
+
+### Разделение инструментов по toolset/profile
+
+- `--toolset developer` — только инструменты разработки (`get_metadata_tree`, `execute_query`, `search_code`, и т.д.).
+- `--toolset business` — только бизнес-инструменты (сейчас: `read_counterparties`, `create_counterparty`).
+- `--toolset all` — оба набора (режим по умолчанию, обратная совместимость).
+- `--profile auto` — автоопределение профиля по `/configuration` (fallback в `generic`, если endpoint недоступен).
+- Business tools регистрируются только для поддержанных профилей. В `v1` поддержаны `buh_3_0` и `generic`.
+
+### Cursor и авторизация
+
+Если HTTP-сервис 1С требует логин/пароль, передайте их при генерации `.cursor/mcp.json`:
+
+```bash
+make cursor-install CURSOR_SERVER_NAME=1c-business CURSOR_TOOLSET=business CURSOR_PROFILE=auto MCP_USER=mcp MCP_PASSWORD=пароль
+```
+
+Эта команда добавляет в `args` параметры `--user` и `--password`. Для production рекомендуется хранить секреты вне JSON-конфига и передавать их через переменные окружения (`MCP_1C_USER`, `MCP_1C_PASSWORD`).
 
 ## Разработка
 

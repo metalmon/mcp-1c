@@ -12,8 +12,9 @@ import (
 
 	"github.com/feenlace/mcp-1c/dump"
 	"github.com/feenlace/mcp-1c/extension"
-	"github.com/feenlace/mcp-1c/internal/config"
 	"github.com/feenlace/mcp-1c/installer"
+	"github.com/feenlace/mcp-1c/internal/config"
+	"github.com/feenlace/mcp-1c/internal/profile"
 	"github.com/feenlace/mcp-1c/onec"
 	"github.com/feenlace/mcp-1c/server"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -40,6 +41,8 @@ func main() {
 	dumpDir := flag.String("dump", "", "Path to DumpConfigToFiles output (enables search_code)")
 	cacheDir := flag.String("cache-dir", "", "Directory for index cache and logs (default: platform cache dir)")
 	reindex := flag.Bool("reindex", false, "Force rebuild of search index cache")
+	toolsetFlag := flag.String("toolset", string(server.ToolsetAll), "Toolset to expose: developer|business|all")
+	profileFlag := flag.String("profile", profile.Auto, "Configuration profile: auto|generic|buh_3_0|unknown")
 	installDB := flag.String("install", "", "Install extension into 1C database at given path")
 	serverMode := flag.Bool("server", false, `Treat --install value as server connection string (server\database)`)
 	platformPath := flag.String("platform", "", "Path to 1C platform executable (auto-detected if omitted)")
@@ -95,11 +98,31 @@ func main() {
 
 	client := onec.NewClient(cfg.BaseURL, cfg.User, cfg.Password)
 
+	toolset, err := server.ParseToolset(*toolsetFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid --toolset: %v\n", err)
+		os.Exit(1)
+	}
+
+	normalizedProfile, err := profile.Normalize(*profileFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid --profile: %v\n", err)
+		os.Exit(1)
+	}
+
+	resolvedProfile := profile.Generic
+	if toolset != server.ToolsetDeveloper {
+		var resolveErr error
+		resolvedProfile, resolveErr = profile.Resolve(context.Background(), client, normalizedProfile)
+		if resolveErr != nil && normalizedProfile == profile.Auto {
+			slog.Error("Profile auto-detection failed, fallback to generic", "error", resolveErr)
+		}
+	}
+
 	go checkExtensionVersion(client)
 
 	var dumpIndex *dump.Index
 	if *dumpDir != "" {
-		var err error
 		dumpIndex, err = dump.NewIndex(*dumpDir, *cacheDir, *reindex)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "loading dump from %s: %v\n", *dumpDir, err)
@@ -109,7 +132,10 @@ func main() {
 		// Index builds in background. ModuleCount is available after Ready().
 	}
 
-	s := server.New(version, client, dumpIndex)
+	s := server.New(version, client, dumpIndex, server.Options{
+		Toolset: toolset,
+		Profile: resolvedProfile,
+	})
 
 	if err := s.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		fmt.Fprintf(os.Stderr, "mcp-1c error: %v\n", err)

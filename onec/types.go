@@ -119,3 +119,44 @@ type EventLogEntry struct {
 	Comment     string `json:"comment,omitempty"`
 	Transaction string `json:"transaction,omitempty"`
 }
+
+// Counterparty represents a 1C counterparty.
+type Counterparty struct {
+	Ref              string `json:"ref"`
+	Code             string `json:"code"`
+	Name             string `json:"name"`
+	INN              string `json:"inn"`
+	KPP              string `json:"kpp"`
+	CounterpartyType string `json:"counterparty_type,omitempty"`
+}
+
+// ReadCounterpartiesRequest is the request body for counterparties read endpoint.
+type ReadCounterpartiesRequest struct {
+	Search string `json:"search,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
+	Code   string `json:"code,omitempty"`
+	Ref    string `json:"ref,omitempty"`
+	INN    string `json:"inn,omitempty"`
+	KPP    string `json:"kpp,omitempty"`
+}
+
+// ReadCounterpartiesResult is the response from counterparties read endpoint.
+type ReadCounterpartiesResult struct {
+	Counterparties []Counterparty `json:"counterparties"`
+	Total          int            `json:"total"`
+	Truncated      bool           `json:"truncated"`
+}
+
+// CreateCounterpartyRequest is the request body for creating a counterparty.
+type CreateCounterpartyRequest struct {
+	Name             string `json:"name"`
+	INN              string `json:"inn"`
+	KPP              string `json:"kpp"`
+	CounterpartyType string `json:"counterparty_type"`
+}
+
+// CreateCounterpartyResult is the response from the counterparty create endpoint.
+type CreateCounterpartyResult struct {
+	Success      bool         `json:"success"`
+	Counterparty Counterparty `json:"counterparty"`
+}
