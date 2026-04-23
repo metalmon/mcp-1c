@@ -8,6 +8,10 @@
 	ВызватьИсключение "generic profile: update_sales_* tools are not implemented";
 КонецФункции
 
+Функция ПрикрепитьФайлКДокументу(Параметры) Экспорт
+	ВызватьИсключение "generic profile: attach_file_to_document is not implemented";
+КонецФункции
+
 Функция ПрочитатьКонтрагентов(Параметры) Экспорт
 	ВызватьИсключение "generic profile: read_counterparties is not implemented";
 КонецФункции

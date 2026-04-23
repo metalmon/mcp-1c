@@ -22,4 +22,5 @@ func RegisterWriteTools(s *mcp.Server, onecClient *onec.Client) {
 	s.AddTool(tools.UpdateSalesInvoiceTool(), tools.NewUpdateSalesInvoiceHandler(onecClient))
 	s.AddTool(tools.CreateSalesDocumentTool(), tools.NewCreateSalesDocumentHandler(onecClient))
 	s.AddTool(tools.UpdateSalesDocumentTool(), tools.NewUpdateSalesDocumentHandler(onecClient))
+	s.AddTool(tools.AttachFileToDocumentTool(), tools.NewAttachFileToDocumentHandler(onecClient))
 }

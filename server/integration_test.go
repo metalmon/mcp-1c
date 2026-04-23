@@ -180,6 +180,24 @@ func mock1CHandler() http.Handler {
 		}
 	})
 
+	mux.HandleFunc("/document-attachment", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(map[string]any{
+			"success": true,
+			"attachment": map[string]any{
+				"ref":          "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+				"document_ref": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+				"file_name":    "Документ_0001_20260420_scan.pdf",
+				"mime_type":    "application/pdf",
+				"size_bytes":   12,
+			},
+		})
+	})
+
 	return mux
 }
 
@@ -267,6 +285,7 @@ func TestIntegration_ListTools(t *testing.T) {
 		"read_organizations", "read_contracts",
 		"read_sales_invoices", "create_sales_invoice", "update_sales_invoice",
 		"read_sales_documents", "create_sales_document", "update_sales_document",
+		"attach_file_to_document",
 		"bsl_syntax_help",
 	}
 	for _, want := range expected {
@@ -300,7 +319,8 @@ func TestIntegration_ListToolsDeveloperOnly(t *testing.T) {
 		toolNames["read_nomenclature"] || toolNames["create_nomenclature"] ||
 		toolNames["read_organizations"] || toolNames["read_contracts"] ||
 		toolNames["read_sales_invoices"] || toolNames["create_sales_invoice"] || toolNames["update_sales_invoice"] ||
-		toolNames["read_sales_documents"] || toolNames["create_sales_document"] || toolNames["update_sales_document"] {
+		toolNames["read_sales_documents"] || toolNames["create_sales_document"] || toolNames["update_sales_document"] ||
+		toolNames["attach_file_to_document"] {
 		t.Fatalf("business tools must be hidden in developer mode: %v", toolNames)
 	}
 	if !toolNames["get_metadata_tree"] {
@@ -325,7 +345,8 @@ func TestIntegration_ListToolsBusinessUnsupportedProfile(t *testing.T) {
 			tool.Name == "read_nomenclature" || tool.Name == "create_nomenclature" ||
 			tool.Name == "read_organizations" || tool.Name == "read_contracts" ||
 			tool.Name == "read_sales_invoices" || tool.Name == "create_sales_invoice" || tool.Name == "update_sales_invoice" ||
-			tool.Name == "read_sales_documents" || tool.Name == "create_sales_document" || tool.Name == "update_sales_document" {
+			tool.Name == "read_sales_documents" || tool.Name == "create_sales_document" || tool.Name == "update_sales_document" ||
+			tool.Name == "attach_file_to_document" {
 			t.Fatalf("did not expect business tools for unsupported profile: %v", result.Tools)
 		}
 	}
@@ -358,6 +379,7 @@ func TestIntegration_ListToolsBusinessReadOnly(t *testing.T) {
 		"update_sales_invoice",
 		"create_sales_document",
 		"update_sales_document",
+		"attach_file_to_document",
 	} {
 		if toolNames[writeTool] {
 			t.Fatalf("did not expect write tool %s in read_only mode, got %v", writeTool, toolNames)
@@ -374,6 +396,35 @@ func TestIntegration_ListToolsBusinessReadOnly(t *testing.T) {
 		if !toolNames[readTool] {
 			t.Fatalf("expected read tool %s in read_only mode, got %v", readTool, toolNames)
 		}
+	}
+}
+
+func TestIntegration_AttachFileToDocument(t *testing.T) {
+	session, cleanup := setupIntegrationWithOptions(t, Options{
+		Toolset: ToolsetBusiness,
+		Profile: "buh_3_0",
+	})
+	defer cleanup()
+
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "attach_file_to_document",
+		Arguments: map[string]any{
+			"document_ref":   "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+			"file_name":      "scan.pdf",
+			"mime_type":      "application/pdf",
+			"content_base64": "QUJDRA==",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool error: %v", err)
+	}
+	if len(result.Content) == 0 {
+		t.Fatal("expected non-empty content")
+	}
+
+	text := result.Content[0].(*mcp.TextContent).Text
+	if !strings.Contains(text, "Файл прикреплен к документу") {
+		t.Fatalf("unexpected response: %s", text)
 	}
 }
 

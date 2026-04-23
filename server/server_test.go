@@ -125,6 +125,7 @@ func TestToolsetsAffectRegisteredTools(t *testing.T) {
 		"read_organizations", "read_contracts", "read_sales_invoices",
 		"create_sales_invoice", "update_sales_invoice",
 		"read_sales_documents", "create_sales_document", "update_sales_document",
+		"attach_file_to_document",
 	} {
 		if !businessTools[tool] {
 			t.Fatalf("expected %s in business toolset, got %v", tool, businessTools)
@@ -145,7 +146,8 @@ func TestBusinessToolsetRespectsProfileSupport(t *testing.T) {
 		!supported["read_nomenclature"] || !supported["create_nomenclature"] ||
 		!supported["read_organizations"] || !supported["read_contracts"] ||
 		!supported["read_sales_invoices"] || !supported["create_sales_invoice"] || !supported["update_sales_invoice"] ||
-		!supported["read_sales_documents"] || !supported["create_sales_document"] || !supported["update_sales_document"] {
+		!supported["read_sales_documents"] || !supported["create_sales_document"] || !supported["update_sales_document"] ||
+		!supported["attach_file_to_document"] {
 		t.Fatalf("expected business tools on supported profile, got %v", supported)
 	}
 
@@ -157,7 +159,8 @@ func TestBusinessToolsetRespectsProfileSupport(t *testing.T) {
 		unsupported["read_nomenclature"] || unsupported["create_nomenclature"] ||
 		unsupported["read_organizations"] || unsupported["read_contracts"] ||
 		unsupported["read_sales_invoices"] || unsupported["create_sales_invoice"] || unsupported["update_sales_invoice"] ||
-		unsupported["read_sales_documents"] || unsupported["create_sales_document"] || unsupported["update_sales_document"] {
+		unsupported["read_sales_documents"] || unsupported["create_sales_document"] || unsupported["update_sales_document"] ||
+		unsupported["attach_file_to_document"] {
 		t.Fatalf("did not expect business tools on unsupported profile, got %v", unsupported)
 	}
 }
@@ -210,6 +213,7 @@ func TestBusinessReadOnlyModeDoesNotRegisterWriteTools(t *testing.T) {
 		"update_sales_invoice",
 		"create_sales_document",
 		"update_sales_document",
+		"attach_file_to_document",
 	} {
 		if toolsList[writeTool] {
 			t.Fatalf("did not expect write tool %s in read_only mode, got %v", writeTool, toolsList)

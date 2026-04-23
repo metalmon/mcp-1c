@@ -397,3 +397,27 @@ type UpdateSalesDocumentResult struct {
 	Success  bool          `json:"success"`
 	Document SalesDocument `json:"document"`
 }
+
+// DocumentAttachment represents an attached file linked to a 1C document.
+type DocumentAttachment struct {
+	Ref         string `json:"ref"` // UUID string
+	DocumentRef string `json:"document_ref"`
+	FileName    string `json:"file_name"`
+	MimeType    string `json:"mime_type,omitempty"`
+	SizeBytes   int64  `json:"size_bytes,omitempty"`
+}
+
+// AttachFileToDocumentRequest is the request body for attaching file to document.
+type AttachFileToDocumentRequest struct {
+	DocumentRef   string `json:"document_ref"`
+	FileName      string `json:"file_name"`
+	MimeType      string `json:"mime_type,omitempty"`
+	ContentBase64 string `json:"content_base64"`
+	Comment       string `json:"comment,omitempty"`
+}
+
+// AttachFileToDocumentResult is the response from document attachment endpoint.
+type AttachFileToDocumentResult struct {
+	Success    bool               `json:"success"`
+	Attachment DocumentAttachment `json:"attachment"`
+}

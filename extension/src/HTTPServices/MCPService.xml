@@ -566,6 +566,35 @@
 					</Method>
 				</ChildObjects>
 			</URLTemplate>
+			<URLTemplate uuid="f6dd7f10-74cc-44d5-b097-b4de57a1a9af">
+				<Properties>
+					<Name>ВложениеДокумента</Name>
+					<Synonym>
+						<v8:item>
+							<v8:lang>ru</v8:lang>
+							<v8:content>ВложениеДокумента</v8:content>
+						</v8:item>
+					</Synonym>
+					<Comment/>
+					<Template>/document-attachment</Template>
+				</Properties>
+				<ChildObjects>
+					<Method uuid="77b4699d-5f6b-42f2-8e85-4a182b8b2ef1">
+						<Properties>
+							<Name>POST</Name>
+							<Synonym>
+								<v8:item>
+									<v8:lang>ru</v8:lang>
+									<v8:content>POST</v8:content>
+								</v8:item>
+							</Synonym>
+							<Comment/>
+							<HTTPMethod>POST</HTTPMethod>
+							<Handler>ВложениеДокументаPOST</Handler>
+						</Properties>
+					</Method>
+				</ChildObjects>
+			</URLTemplate>
 		</ChildObjects>
 	</HTTPService>
 </MetaDataObject>
