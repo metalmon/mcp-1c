@@ -27,7 +27,7 @@ func AttachFileToDocumentTool() *mcp.Tool {
 		InputSchema: json.RawMessage(`{
 			"type":"object",
 			"properties":{
-				"document_ref":{"type":"string","description":"Ссылка документа (UUID)"},
+				"document_ref":{"type":"string","description":"Типизированная ссылка документа (<metadataFullName>:<uuid>)"},
 				"file_name":{"type":"string","description":"Имя файла с расширением"},
 				"mime_type":{"type":"string","description":"MIME-тип файла, например application/pdf"},
 				"content_base64":{"type":"string","description":"Содержимое файла в формате base64"},

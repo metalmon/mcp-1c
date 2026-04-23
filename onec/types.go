@@ -400,14 +400,29 @@ type UpdateSalesDocumentResult struct {
 
 // DocumentAttachment represents an attached file linked to a 1C document.
 type DocumentAttachment struct {
-	Ref         string `json:"ref"` // UUID string
-	DocumentRef string `json:"document_ref"`
-	FileName    string `json:"file_name"`
-	Description string `json:"description,omitempty"`
-	MimeType    string `json:"mime_type,omitempty"`
-	SizeBytes   int64  `json:"size_bytes,omitempty"`
+	Ref           string `json:"ref"`
+	DocumentRef   string `json:"document_ref"`
+	FileName      string `json:"file_name"`
+	Description   string `json:"description,omitempty"`
+	MimeType      string `json:"mime_type,omitempty"`
+	SizeBytes     int64  `json:"size_bytes,omitempty"`
 	ContentBase64 string `json:"content_base64,omitempty"`
-	CreatedAt   string `json:"created_at,omitempty"`
+	CreatedAt     string `json:"created_at,omitempty"`
+}
+
+type DocumentAttachmentInjection struct {
+	Mode string `json:"mode"`
+}
+
+type DocumentAttachmentContentV1 struct {
+	ID              string                      `json:"id"`
+	Name            string                      `json:"name"`
+	MimeType        string                      `json:"mime_type"`
+	SizeBytes       int64                       `json:"size_bytes"`
+	Encoding        string                      `json:"encoding"`
+	Content         string                      `json:"content"`
+	Injection       DocumentAttachmentInjection `json:"injection"`
+	ContractVersion string                      `json:"contract_version"`
 }
 
 // AttachFileToDocumentRequest is the request body for attaching file to document.
@@ -446,7 +461,7 @@ type GetDocumentAttachmentContentRequest struct {
 
 // GetDocumentAttachmentContentResult is the response for attachment content.
 type GetDocumentAttachmentContentResult struct {
-	Attachment DocumentAttachment `json:"attachment"`
+	Content DocumentAttachmentContentV1 `json:"content"`
 }
 
 // UpdateDocumentAttachmentMetadataRequest is the request for attachment metadata update.

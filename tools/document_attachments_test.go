@@ -23,8 +23,8 @@ func TestAttachFileToDocumentHandler(t *testing.T) {
 	const resp = `{
 		"success": true,
 		"attachment": {
-			"ref": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-			"document_ref": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+			"ref": "attachmentCatalog:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+			"document_ref": "Документ.РеализацияТоваровУслуг:bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
 			"file_name": "Счет_0001_20260420_scan.pdf",
 			"mime_type": "application/pdf",
 			"size_bytes": 128
@@ -37,7 +37,7 @@ func TestAttachFileToDocumentHandler(t *testing.T) {
 		}
 		body, _ := io.ReadAll(r.Body)
 		bodyText := string(body)
-		if !strings.Contains(bodyText, `"document_ref":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"`) {
+		if !strings.Contains(bodyText, `"document_ref":"Документ.РеализацияТоваровУслуг:bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"`) {
 			http.Error(w, "document_ref not passed", http.StatusBadRequest)
 			return
 		}
@@ -55,7 +55,7 @@ func TestAttachFileToDocumentHandler(t *testing.T) {
 		Params: &mcp.CallToolParamsRaw{
 			Name: "attach_file_to_document",
 			Arguments: []byte(`{
-				"document_ref":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+				"document_ref":"Документ.РеализацияТоваровУслуг:bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
 				"file_name":"scan.pdf",
 				"mime_type":"application/pdf",
 				"content_base64":"QUJDRA=="

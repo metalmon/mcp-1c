@@ -37,8 +37,8 @@ func TestReadDocumentAttachmentsHandler(t *testing.T) {
 	const resp = `{
 		"attachments":[
 			{
-				"ref":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-				"document_ref":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+				"ref":"attachmentCatalog:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+				"document_ref":"Документ.РеализацияТоваровУслуг:bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
 				"file_name":"scan.pdf",
 				"description":"УПД",
 				"mime_type":"application/pdf",
@@ -60,7 +60,7 @@ func TestReadDocumentAttachmentsHandler(t *testing.T) {
 
 	handler := NewReadDocumentAttachmentsHandler(onec.NewClient(srv.URL, "", ""))
 	result, err := handler(context.Background(), &mcp.CallToolRequest{
-		Params: &mcp.CallToolParamsRaw{Name: "read_document_attachments", Arguments: []byte(`{"document_ref":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"}`)},
+		Params: &mcp.CallToolParamsRaw{Name: "read_document_attachments", Arguments: []byte(`{"document_ref":"Документ.РеализацияТоваровУслуг:bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"}`)},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -73,13 +73,15 @@ func TestReadDocumentAttachmentsHandler(t *testing.T) {
 
 func TestGetDocumentAttachmentContentHandler(t *testing.T) {
 	const resp = `{
-		"attachment":{
-			"ref":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-			"document_ref":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
-			"file_name":"scan.pdf",
+		"content":{
+			"id":"attachmentCatalog:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+			"name":"scan.pdf",
 			"mime_type":"application/pdf",
 			"size_bytes":128,
-			"content_base64":"QUJDRA=="
+			"encoding":"base64",
+			"content":"QUJDRA==",
+			"injection":{"mode":"file_reference"},
+			"contract_version":"1.0"
 		}
 	}`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -94,13 +96,13 @@ func TestGetDocumentAttachmentContentHandler(t *testing.T) {
 
 	handler := NewGetDocumentAttachmentContentHandler(onec.NewClient(srv.URL, "", ""))
 	result, err := handler(context.Background(), &mcp.CallToolRequest{
-		Params: &mcp.CallToolParamsRaw{Name: "get_document_attachment_content", Arguments: []byte(`{"attachment_ref":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}`)},
+		Params: &mcp.CallToolParamsRaw{Name: "get_document_attachment_content", Arguments: []byte(`{"attachment_ref":"attachmentCatalog:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}`)},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	text := result.Content[0].(*mcp.TextContent).Text
-	if !strings.Contains(text, "Content Base64: QUJDRA==") {
+	if !strings.Contains(text, `"content":"QUJDRA=="`) || !strings.Contains(text, `"contract_version":"1.0"`) {
 		t.Fatalf("unexpected result:\n%s", text)
 	}
 }

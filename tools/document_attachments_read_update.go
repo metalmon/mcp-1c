@@ -2,13 +2,11 @@ package tools
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"mime"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/feenlace/mcp-1c/onec"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -46,7 +44,7 @@ func ReadDocumentAttachmentsTool() *mcp.Tool {
 		InputSchema: json.RawMessage(`{
 			"type":"object",
 			"properties":{
-				"document_ref":{"type":"string","description":"Ссылка документа (UUID)"},
+				"document_ref":{"type":"string","description":"Типизированная ссылка документа (<metadataFullName>:<uuid>)"},
 				"limit":{"type":"integer","description":"Максимум строк (по умолчанию 50, максимум 500)"},
 				"search":{"type":"string","description":"Поиск по имени или описанию вложения"}
 			},
@@ -88,7 +86,7 @@ func GetDocumentAttachmentContentTool() *mcp.Tool {
 		InputSchema: json.RawMessage(`{
 			"type":"object",
 			"properties":{
-				"attachment_ref":{"type":"string","description":"Ссылка вложения (UUID)"}
+				"attachment_ref":{"type":"string","description":"Типизированная ссылка вложения (attachmentCatalog:<uuid>)"}
 			},
 			"required":["attachment_ref"]
 		}`),
@@ -123,7 +121,7 @@ func UpdateDocumentAttachmentMetadataTool() *mcp.Tool {
 		InputSchema: json.RawMessage(`{
 			"type":"object",
 			"properties":{
-				"attachment_ref":{"type":"string","description":"Ссылка вложения (UUID)"},
+				"attachment_ref":{"type":"string","description":"Типизированная ссылка вложения (attachmentCatalog:<uuid>)"},
 				"file_name":{"type":"string","description":"Новое имя файла"},
 				"description":{"type":"string","description":"Новое описание вложения"}
 			},
@@ -180,33 +178,31 @@ func formatReadDocumentAttachmentsResult(r *onec.ReadDocumentAttachmentsResult) 
 }
 
 func formatGetDocumentAttachmentContentResult(r *onec.GetDocumentAttachmentContentResult) string {
-	att := r.Attachment
-	var b strings.Builder
-	b.WriteString("# Содержимое вложения\n\n")
-	fmt.Fprintf(&b, "- Ref: %s\n", att.Ref)
-	fmt.Fprintf(&b, "- Document Ref: %s\n", att.DocumentRef)
-	fmt.Fprintf(&b, "- File Name: %s\n", att.FileName)
-	mimeType := normalizeMimeType(att.MimeType, att.FileName)
-	if mimeType != "" {
-		fmt.Fprintf(&b, "- Mime Type: %s\n", mimeType)
+	content := r.Content
+	content.MimeType = normalizeMimeType(content.MimeType, content.Name)
+	if strings.TrimSpace(content.ContractVersion) == "" {
+		content.ContractVersion = "1.0"
 	}
-	contentKind := detectContentKind(mimeType)
-	fmt.Fprintf(&b, "- Content Kind: %s\n", contentKind)
-	if att.SizeBytes > 0 {
-		fmt.Fprintf(&b, "- Size (bytes): %d\n", att.SizeBytes)
+	if strings.TrimSpace(content.Encoding) == "" {
+		content.Encoding = "base64"
 	}
-	if att.ContentBase64 != "" {
-		fmt.Fprintf(&b, "- Content Base64: %s\n", att.ContentBase64)
-		textPreview := decodeTextPreviewIfPossible(att.ContentBase64, contentKind)
-		if textPreview != "" {
-			fmt.Fprintf(&b, "- Text Preview: %s\n", textPreview)
-		}
-		recommendation := renderInjectionRecommendation(contentKind)
-		if recommendation != "" {
-			fmt.Fprintf(&b, "- Injection Hint: %s\n", recommendation)
-		}
+	if strings.TrimSpace(content.Injection.Mode) == "" {
+		content.Injection.Mode = detectInjectionMode(content.MimeType)
 	}
-	return b.String()
+	data, err := json.Marshal(content)
+	if err != nil {
+		return fmt.Sprintf(`{"id":"%s","name":"%s","mime_type":"%s","size_bytes":%d,"encoding":"%s","content":"%s","injection":{"mode":"%s"},"contract_version":"%s"}`,
+			content.ID,
+			content.Name,
+			content.MimeType,
+			content.SizeBytes,
+			content.Encoding,
+			content.Content,
+			content.Injection.Mode,
+			content.ContractVersion,
+		)
+	}
+	return string(data)
 }
 
 func normalizeMimeType(rawMimeType, fileName string) string {
@@ -222,50 +218,19 @@ func normalizeMimeType(rawMimeType, fileName string) string {
 	return strings.TrimSpace(strings.Split(detected, ";")[0])
 }
 
-func detectContentKind(mimeType string) string {
+func detectInjectionMode(mimeType string) string {
 	lower := strings.ToLower(strings.TrimSpace(mimeType))
 	switch {
 	case strings.HasPrefix(lower, "image/"):
-		return "image"
+		return "multimodal_image"
 	case strings.HasPrefix(lower, "text/"),
 		lower == "application/json",
 		lower == "application/xml",
 		lower == "text/xml",
 		lower == "application/csv":
-		return "text"
+		return "inline_text"
 	default:
-		return "binary"
-	}
-}
-
-func decodeTextPreviewIfPossible(contentBase64, contentKind string) string {
-	if contentKind != "text" {
-		return ""
-	}
-	payload, err := base64.StdEncoding.DecodeString(strings.TrimSpace(contentBase64))
-	if err != nil || len(payload) == 0 || !utf8.Valid(payload) {
-		return ""
-	}
-	decoded := strings.TrimSpace(string(payload))
-	if decoded == "" {
-		return ""
-	}
-	const maxPreview = 1200
-	runes := []rune(decoded)
-	if len(runes) <= maxPreview {
-		return decoded
-	}
-	return string(runes[:maxPreview]) + "... [truncated]"
-}
-
-func renderInjectionRecommendation(contentKind string) string {
-	switch contentKind {
-	case "image":
-		return "Передавать в LLM как image-part (не как plain text base64)."
-	case "text":
-		return "Передавать в LLM как text-part из декодированного содержимого."
-	default:
-		return "Для binary использовать file-part и/или отдельный extractor (pdf/docx/xlsx)."
+		return "file_reference"
 	}
 }
 
