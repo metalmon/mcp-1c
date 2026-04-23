@@ -33,8 +33,8 @@ func TestRegisterAll(t *testing.T) {
 	}
 
 	// Derive expected names from the source of truth.
-	expected := make(map[string]bool, len(allPrompts))
-	for _, p := range allPrompts {
+	expected := make(map[string]bool, len(developerPrompts))
+	for _, p := range developerPrompts {
 		expected[p.prompt.Name] = false
 	}
 
@@ -55,6 +55,74 @@ func TestRegisterAll(t *testing.T) {
 		if !found {
 			t.Errorf("prompt %q not found in ListPrompts result", name)
 		}
+	}
+}
+
+func TestRegisterBusiness_Buh30(t *testing.T) {
+	s := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0"}, nil)
+	RegisterBusiness(s, "buh_3_0")
+
+	ctx := context.Background()
+	ct, st := mcp.NewInMemoryTransports()
+
+	_, err := s.Connect(ctx, st, nil)
+	if err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "1.0"}, nil)
+	session, err := client.Connect(ctx, ct, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	defer session.Close()
+
+	result, err := session.ListPrompts(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListPrompts error: %v", err)
+	}
+
+	if len(result.Prompts) != len(buh30BusinessPrompts) {
+		t.Fatalf("expected %d prompts, got %d", len(buh30BusinessPrompts), len(result.Prompts))
+	}
+
+	got := make(map[string]bool, len(result.Prompts))
+	for _, p := range result.Prompts {
+		got[p.Name] = true
+	}
+	for _, p := range buh30BusinessPrompts {
+		if !got[p.prompt.Name] {
+			t.Errorf("prompt %q not found in business buh_3_0 registration", p.prompt.Name)
+		}
+	}
+}
+
+func TestRegisterBusiness_UnknownProfile(t *testing.T) {
+	s := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0"}, nil)
+	RegisterBusiness(s, "generic")
+
+	ctx := context.Background()
+	ct, st := mcp.NewInMemoryTransports()
+
+	_, err := s.Connect(ctx, st, nil)
+	if err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "1.0"}, nil)
+	session, err := client.Connect(ctx, ct, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	defer session.Close()
+
+	result, err := session.ListPrompts(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListPrompts error: %v", err)
+	}
+
+	if len(result.Prompts) != 0 {
+		t.Fatalf("expected 0 prompts for unknown business profile, got %d", len(result.Prompts))
 	}
 }
 
@@ -162,6 +230,24 @@ func TestPromptHandlers(t *testing.T) {
 				"object_name": "ТоварыНаСкладах",
 			},
 			wantKeyword: "get_object_structure",
+		},
+		{
+			name:        "buh30_sales_health_audit",
+			handler:     handleBuh30SalesHealthAudit,
+			arguments:   map[string]string{},
+			wantKeyword: "read_sales_invoices",
+		},
+		{
+			name:        "buh30_cfo_cashflow_risk_snapshot",
+			handler:     handleBuh30CFOCashflowRiskSnapshot,
+			arguments:   map[string]string{},
+			wantKeyword: "Резюме для финдиректора",
+		},
+		{
+			name:        "buh30_revenue_leakage_watch",
+			handler:     handleBuh30RevenueLeakageWatch,
+			arguments:   map[string]string{},
+			wantKeyword: "Каналы утечки",
 		},
 	}
 

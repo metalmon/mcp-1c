@@ -37,9 +37,10 @@ func New(version string, onecClient *onec.Client, dumpIndex *dump.Index, options
 	switch cfg.Toolset {
 	case ToolsetDeveloper:
 		registerDeveloperTools(s, onecClient, dumpIndex)
-		prompts.RegisterAll(s)
+		prompts.RegisterDeveloper(s)
 	case ToolsetBusiness:
 		registerBusinessTools(s, onecClient, cfg.Profile, cfg.Access)
+		prompts.RegisterBusiness(s, cfg.Profile)
 	default:
 		registerDeveloperTools(s, onecClient, dumpIndex)
 		registerBusinessTools(s, onecClient, cfg.Profile, cfg.Access)

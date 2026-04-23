@@ -15,8 +15,8 @@ type promptDef struct {
 	handler mcp.PromptHandler
 }
 
-// allPrompts is the complete list of prompts exposed by the server.
-var allPrompts = []promptDef{
+// developerPrompts is the list of developer-oriented prompts.
+var developerPrompts = []promptDef{
 	{
 		prompt: &mcp.Prompt{
 			Name:        "review_module",
@@ -123,9 +123,26 @@ var allPrompts = []promptDef{
 	},
 }
 
-// RegisterAll registers all prompts on the given MCP server.
+// RegisterAll registers all developer and profile-aware business prompts.
 func RegisterAll(s *mcp.Server) {
-	for _, p := range allPrompts {
+	registerPromptDefs(s, developerPrompts)
+}
+
+// RegisterDeveloper registers only developer-oriented prompts.
+func RegisterDeveloper(s *mcp.Server) {
+	registerPromptDefs(s, developerPrompts)
+}
+
+// RegisterBusiness registers business prompts for a specific profile.
+func RegisterBusiness(s *mcp.Server, profile string) {
+	switch profile {
+	case "buh_3_0":
+		registerPromptDefs(s, buh30BusinessPrompts)
+	}
+}
+
+func registerPromptDefs(s *mcp.Server, defs []promptDef) {
+	for _, p := range defs {
 		s.AddPrompt(p.prompt, p.handler)
 	}
 }

@@ -199,6 +199,50 @@ func TestBusinessToolsetDoesNotRegisterDeveloperPrompts(t *testing.T) {
 	}
 }
 
+func TestBusinessToolsetRegistersProfilePromptsForBuh30(t *testing.T) {
+	t.Parallel()
+
+	client := onec.NewClient("http://localhost:8080/mcp", "", "")
+	srv := New("test", client, nil, Options{
+		Toolset: ToolsetBusiness,
+		Profile: "buh_3_0",
+	})
+
+	ctx := context.Background()
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	if _, err := srv.Connect(ctx, serverTransport, nil); err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+
+	mcpClient := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "1.0"}, nil)
+	session, err := mcpClient.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	defer session.Close()
+
+	result, err := session.ListPrompts(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListPrompts: %v", err)
+	}
+	if len(result.Prompts) != 3 {
+		t.Fatalf("expected 3 profile prompts in business buh_3_0, got %d", len(result.Prompts))
+	}
+	got := map[string]bool{}
+	for _, prompt := range result.Prompts {
+		got[prompt.Name] = true
+	}
+	for _, want := range []string{
+		"buh30_sales_health_audit",
+		"buh30_cfo_cashflow_risk_snapshot",
+		"buh30_revenue_leakage_watch",
+	} {
+		if !got[want] {
+			t.Fatalf("expected prompt %q in business buh_3_0", want)
+		}
+	}
+}
+
 func TestBusinessReadOnlyModeDoesNotRegisterWriteTools(t *testing.T) {
 	t.Parallel()
 

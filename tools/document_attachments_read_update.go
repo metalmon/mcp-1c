@@ -2,9 +2,13 @@ package tools
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"mime"
+	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/feenlace/mcp-1c/onec"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -182,16 +186,87 @@ func formatGetDocumentAttachmentContentResult(r *onec.GetDocumentAttachmentConte
 	fmt.Fprintf(&b, "- Ref: %s\n", att.Ref)
 	fmt.Fprintf(&b, "- Document Ref: %s\n", att.DocumentRef)
 	fmt.Fprintf(&b, "- File Name: %s\n", att.FileName)
-	if att.MimeType != "" {
-		fmt.Fprintf(&b, "- Mime Type: %s\n", att.MimeType)
+	mimeType := normalizeMimeType(att.MimeType, att.FileName)
+	if mimeType != "" {
+		fmt.Fprintf(&b, "- Mime Type: %s\n", mimeType)
 	}
+	contentKind := detectContentKind(mimeType)
+	fmt.Fprintf(&b, "- Content Kind: %s\n", contentKind)
 	if att.SizeBytes > 0 {
 		fmt.Fprintf(&b, "- Size (bytes): %d\n", att.SizeBytes)
 	}
 	if att.ContentBase64 != "" {
 		fmt.Fprintf(&b, "- Content Base64: %s\n", att.ContentBase64)
+		textPreview := decodeTextPreviewIfPossible(att.ContentBase64, contentKind)
+		if textPreview != "" {
+			fmt.Fprintf(&b, "- Text Preview: %s\n", textPreview)
+		}
+		recommendation := renderInjectionRecommendation(contentKind)
+		if recommendation != "" {
+			fmt.Fprintf(&b, "- Injection Hint: %s\n", recommendation)
+		}
 	}
 	return b.String()
+}
+
+func normalizeMimeType(rawMimeType, fileName string) string {
+	mimeType := strings.TrimSpace(rawMimeType)
+	if mimeType != "" {
+		return mimeType
+	}
+	ext := strings.ToLower(filepath.Ext(strings.TrimSpace(fileName)))
+	if ext == "" {
+		return ""
+	}
+	detected := mime.TypeByExtension(ext)
+	return strings.TrimSpace(strings.Split(detected, ";")[0])
+}
+
+func detectContentKind(mimeType string) string {
+	lower := strings.ToLower(strings.TrimSpace(mimeType))
+	switch {
+	case strings.HasPrefix(lower, "image/"):
+		return "image"
+	case strings.HasPrefix(lower, "text/"),
+		lower == "application/json",
+		lower == "application/xml",
+		lower == "text/xml",
+		lower == "application/csv":
+		return "text"
+	default:
+		return "binary"
+	}
+}
+
+func decodeTextPreviewIfPossible(contentBase64, contentKind string) string {
+	if contentKind != "text" {
+		return ""
+	}
+	payload, err := base64.StdEncoding.DecodeString(strings.TrimSpace(contentBase64))
+	if err != nil || len(payload) == 0 || !utf8.Valid(payload) {
+		return ""
+	}
+	decoded := strings.TrimSpace(string(payload))
+	if decoded == "" {
+		return ""
+	}
+	const maxPreview = 1200
+	runes := []rune(decoded)
+	if len(runes) <= maxPreview {
+		return decoded
+	}
+	return string(runes[:maxPreview]) + "... [truncated]"
+}
+
+func renderInjectionRecommendation(contentKind string) string {
+	switch contentKind {
+	case "image":
+		return "Передавать в LLM как image-part (не как plain text base64)."
+	case "text":
+		return "Передавать в LLM как text-part из декодированного содержимого."
+	default:
+		return "Для binary использовать file-part и/или отдельный extractor (pdf/docx/xlsx)."
+	}
 }
 
 func formatUpdateDocumentAttachmentMetadataResult(r *onec.UpdateDocumentAttachmentMetadataResult) string {
