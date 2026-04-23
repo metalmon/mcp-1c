@@ -13,6 +13,8 @@ func RegisterReadTools(s *mcp.Server, onecClient *onec.Client) {
 	s.AddTool(tools.ReadContractsTool(), tools.NewReadContractsHandler(onecClient))
 	s.AddTool(tools.ReadSalesInvoicesTool(), tools.NewReadSalesInvoicesHandler(onecClient))
 	s.AddTool(tools.ReadSalesDocumentsTool(), tools.NewReadSalesDocumentsHandler(onecClient))
+	s.AddTool(tools.ReadDocumentAttachmentsTool(), tools.NewReadDocumentAttachmentsHandler(onecClient))
+	s.AddTool(tools.GetDocumentAttachmentContentTool(), tools.NewGetDocumentAttachmentContentHandler(onecClient))
 }
 
 func RegisterWriteTools(s *mcp.Server, onecClient *onec.Client) {
@@ -23,4 +25,5 @@ func RegisterWriteTools(s *mcp.Server, onecClient *onec.Client) {
 	s.AddTool(tools.CreateSalesDocumentTool(), tools.NewCreateSalesDocumentHandler(onecClient))
 	s.AddTool(tools.UpdateSalesDocumentTool(), tools.NewUpdateSalesDocumentHandler(onecClient))
 	s.AddTool(tools.AttachFileToDocumentTool(), tools.NewAttachFileToDocumentHandler(onecClient))
+	s.AddTool(tools.UpdateDocumentAttachmentMetadataTool(), tools.NewUpdateDocumentAttachmentMetadataHandler(onecClient))
 }

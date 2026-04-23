@@ -12,6 +12,18 @@
 	ВызватьИсключение "generic profile: attach_file_to_document is not implemented";
 КонецФункции
 
+Функция ПрочитатьВложенияДокумента(Параметры) Экспорт
+	ВызватьИсключение "generic profile: read_document_attachments is not implemented";
+КонецФункции
+
+Функция ПрочитатьСодержимоеВложенияДокумента(Параметры) Экспорт
+	ВызватьИсключение "generic profile: get_document_attachment_content is not implemented";
+КонецФункции
+
+Функция ОбновитьМетаданныеВложенияДокумента(Параметры) Экспорт
+	ВызватьИсключение "generic profile: update_document_attachment_metadata is not implemented";
+КонецФункции
+
 Функция ПрочитатьКонтрагентов(Параметры) Экспорт
 	ВызватьИсключение "generic profile: read_counterparties is not implemented";
 КонецФункции

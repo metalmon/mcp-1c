@@ -595,6 +595,93 @@
 					</Method>
 				</ChildObjects>
 			</URLTemplate>
+			<URLTemplate uuid="3ec36995-74f3-48b7-b78f-4aa9c6f880f2">
+				<Properties>
+					<Name>ВложенияДокумента</Name>
+					<Synonym>
+						<v8:item>
+							<v8:lang>ru</v8:lang>
+							<v8:content>ВложенияДокумента</v8:content>
+						</v8:item>
+					</Synonym>
+					<Comment/>
+					<Template>/document-attachments</Template>
+				</Properties>
+				<ChildObjects>
+					<Method uuid="7be674ef-41df-4cd4-bf2b-bfb77b8ca2d9">
+						<Properties>
+							<Name>POST</Name>
+							<Synonym>
+								<v8:item>
+									<v8:lang>ru</v8:lang>
+									<v8:content>POST</v8:content>
+								</v8:item>
+							</Synonym>
+							<Comment/>
+							<HTTPMethod>POST</HTTPMethod>
+							<Handler>ВложенияДокументаPOST</Handler>
+						</Properties>
+					</Method>
+				</ChildObjects>
+			</URLTemplate>
+			<URLTemplate uuid="a9ff9377-863d-449e-87c6-cf658ef82f13">
+				<Properties>
+					<Name>СодержимоеВложенияДокумента</Name>
+					<Synonym>
+						<v8:item>
+							<v8:lang>ru</v8:lang>
+							<v8:content>СодержимоеВложенияДокумента</v8:content>
+						</v8:item>
+					</Synonym>
+					<Comment/>
+					<Template>/document-attachment-content</Template>
+				</Properties>
+				<ChildObjects>
+					<Method uuid="e3cb3cc7-bf3d-45a8-95f8-14e29f9be4dc">
+						<Properties>
+							<Name>POST</Name>
+							<Synonym>
+								<v8:item>
+									<v8:lang>ru</v8:lang>
+									<v8:content>POST</v8:content>
+								</v8:item>
+							</Synonym>
+							<Comment/>
+							<HTTPMethod>POST</HTTPMethod>
+							<Handler>СодержимоеВложенияДокументаPOST</Handler>
+						</Properties>
+					</Method>
+				</ChildObjects>
+			</URLTemplate>
+			<URLTemplate uuid="1558191b-2f6c-4d8d-a20d-8312cf90f587">
+				<Properties>
+					<Name>МетаданныеВложенияДокумента</Name>
+					<Synonym>
+						<v8:item>
+							<v8:lang>ru</v8:lang>
+							<v8:content>МетаданныеВложенияДокумента</v8:content>
+						</v8:item>
+					</Synonym>
+					<Comment/>
+					<Template>/document-attachment-metadata</Template>
+				</Properties>
+				<ChildObjects>
+					<Method uuid="f7fb246d-94d7-4e73-8c67-3a35be18b9f6">
+						<Properties>
+							<Name>POST</Name>
+							<Synonym>
+								<v8:item>
+									<v8:lang>ru</v8:lang>
+									<v8:content>POST</v8:content>
+								</v8:item>
+							</Synonym>
+							<Comment/>
+							<HTTPMethod>POST</HTTPMethod>
+							<Handler>МетаданныеВложенияДокументаPOST</Handler>
+						</Properties>
+					</Method>
+				</ChildObjects>
+			</URLTemplate>
 		</ChildObjects>
 	</HTTPService>
 </MetaDataObject>

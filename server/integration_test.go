@@ -197,6 +197,59 @@ func mock1CHandler() http.Handler {
 			},
 		})
 	})
+	mux.HandleFunc("/document-attachments", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(map[string]any{
+			"attachments": []map[string]any{
+				{
+					"ref":          "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+					"document_ref": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+					"file_name":    "scan.pdf",
+					"description":  "Скан",
+					"mime_type":    "application/pdf",
+					"size_bytes":   12,
+				},
+			},
+			"total":     1,
+			"truncated": false,
+		})
+	})
+	mux.HandleFunc("/document-attachment-content", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(map[string]any{
+			"attachment": map[string]any{
+				"ref":            "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+				"document_ref":   "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+				"file_name":      "scan.pdf",
+				"mime_type":      "application/pdf",
+				"size_bytes":     12,
+				"content_base64": "QUJDRA==",
+			},
+		})
+	})
+	mux.HandleFunc("/document-attachment-metadata", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(map[string]any{
+			"success": true,
+			"attachment": map[string]any{
+				"ref":         "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+				"file_name":   "renamed.pdf",
+				"description": "Новое описание",
+			},
+		})
+	})
 
 	return mux
 }
@@ -285,6 +338,7 @@ func TestIntegration_ListTools(t *testing.T) {
 		"read_organizations", "read_contracts",
 		"read_sales_invoices", "create_sales_invoice", "update_sales_invoice",
 		"read_sales_documents", "create_sales_document", "update_sales_document",
+		"read_document_attachments", "get_document_attachment_content", "update_document_attachment_metadata",
 		"attach_file_to_document",
 		"bsl_syntax_help",
 	}
@@ -320,6 +374,7 @@ func TestIntegration_ListToolsDeveloperOnly(t *testing.T) {
 		toolNames["read_organizations"] || toolNames["read_contracts"] ||
 		toolNames["read_sales_invoices"] || toolNames["create_sales_invoice"] || toolNames["update_sales_invoice"] ||
 		toolNames["read_sales_documents"] || toolNames["create_sales_document"] || toolNames["update_sales_document"] ||
+		toolNames["read_document_attachments"] || toolNames["get_document_attachment_content"] || toolNames["update_document_attachment_metadata"] ||
 		toolNames["attach_file_to_document"] {
 		t.Fatalf("business tools must be hidden in developer mode: %v", toolNames)
 	}
@@ -346,6 +401,7 @@ func TestIntegration_ListToolsBusinessUnsupportedProfile(t *testing.T) {
 			tool.Name == "read_organizations" || tool.Name == "read_contracts" ||
 			tool.Name == "read_sales_invoices" || tool.Name == "create_sales_invoice" || tool.Name == "update_sales_invoice" ||
 			tool.Name == "read_sales_documents" || tool.Name == "create_sales_document" || tool.Name == "update_sales_document" ||
+			tool.Name == "read_document_attachments" || tool.Name == "get_document_attachment_content" || tool.Name == "update_document_attachment_metadata" ||
 			tool.Name == "attach_file_to_document" {
 			t.Fatalf("did not expect business tools for unsupported profile: %v", result.Tools)
 		}
@@ -379,6 +435,7 @@ func TestIntegration_ListToolsBusinessReadOnly(t *testing.T) {
 		"update_sales_invoice",
 		"create_sales_document",
 		"update_sales_document",
+		"update_document_attachment_metadata",
 		"attach_file_to_document",
 	} {
 		if toolNames[writeTool] {
@@ -392,6 +449,8 @@ func TestIntegration_ListToolsBusinessReadOnly(t *testing.T) {
 		"read_contracts",
 		"read_sales_invoices",
 		"read_sales_documents",
+		"read_document_attachments",
+		"get_document_attachment_content",
 	} {
 		if !toolNames[readTool] {
 			t.Fatalf("expected read tool %s in read_only mode, got %v", readTool, toolNames)
@@ -424,6 +483,73 @@ func TestIntegration_AttachFileToDocument(t *testing.T) {
 
 	text := result.Content[0].(*mcp.TextContent).Text
 	if !strings.Contains(text, "Файл прикреплен к документу") {
+		t.Fatalf("unexpected response: %s", text)
+	}
+}
+
+func TestIntegration_ReadDocumentAttachments(t *testing.T) {
+	session, cleanup := setupIntegrationWithOptions(t, Options{
+		Toolset: ToolsetBusiness,
+		Profile: "buh_3_0",
+	})
+	defer cleanup()
+
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "read_document_attachments",
+		Arguments: map[string]any{
+			"document_ref": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool error: %v", err)
+	}
+	text := result.Content[0].(*mcp.TextContent).Text
+	if !strings.Contains(text, "scan.pdf") {
+		t.Fatalf("unexpected response: %s", text)
+	}
+}
+
+func TestIntegration_GetDocumentAttachmentContent(t *testing.T) {
+	session, cleanup := setupIntegrationWithOptions(t, Options{
+		Toolset: ToolsetBusiness,
+		Profile: "buh_3_0",
+	})
+	defer cleanup()
+
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "get_document_attachment_content",
+		Arguments: map[string]any{
+			"attachment_ref": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool error: %v", err)
+	}
+	text := result.Content[0].(*mcp.TextContent).Text
+	if !strings.Contains(text, "Content Base64: QUJDRA==") {
+		t.Fatalf("unexpected response: %s", text)
+	}
+}
+
+func TestIntegration_UpdateDocumentAttachmentMetadata(t *testing.T) {
+	session, cleanup := setupIntegrationWithOptions(t, Options{
+		Toolset: ToolsetBusiness,
+		Profile: "buh_3_0",
+	})
+	defer cleanup()
+
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "update_document_attachment_metadata",
+		Arguments: map[string]any{
+			"attachment_ref": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+			"file_name":      "renamed.pdf",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool error: %v", err)
+	}
+	text := result.Content[0].(*mcp.TextContent).Text
+	if !strings.Contains(text, "renamed.pdf") {
 		t.Fatalf("unexpected response: %s", text)
 	}
 }

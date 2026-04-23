@@ -125,6 +125,7 @@ func TestToolsetsAffectRegisteredTools(t *testing.T) {
 		"read_organizations", "read_contracts", "read_sales_invoices",
 		"create_sales_invoice", "update_sales_invoice",
 		"read_sales_documents", "create_sales_document", "update_sales_document",
+		"read_document_attachments", "get_document_attachment_content", "update_document_attachment_metadata",
 		"attach_file_to_document",
 	} {
 		if !businessTools[tool] {
@@ -147,6 +148,7 @@ func TestBusinessToolsetRespectsProfileSupport(t *testing.T) {
 		!supported["read_organizations"] || !supported["read_contracts"] ||
 		!supported["read_sales_invoices"] || !supported["create_sales_invoice"] || !supported["update_sales_invoice"] ||
 		!supported["read_sales_documents"] || !supported["create_sales_document"] || !supported["update_sales_document"] ||
+		!supported["read_document_attachments"] || !supported["get_document_attachment_content"] || !supported["update_document_attachment_metadata"] ||
 		!supported["attach_file_to_document"] {
 		t.Fatalf("expected business tools on supported profile, got %v", supported)
 	}
@@ -160,6 +162,7 @@ func TestBusinessToolsetRespectsProfileSupport(t *testing.T) {
 		unsupported["read_organizations"] || unsupported["read_contracts"] ||
 		unsupported["read_sales_invoices"] || unsupported["create_sales_invoice"] || unsupported["update_sales_invoice"] ||
 		unsupported["read_sales_documents"] || unsupported["create_sales_document"] || unsupported["update_sales_document"] ||
+		unsupported["read_document_attachments"] || unsupported["get_document_attachment_content"] || unsupported["update_document_attachment_metadata"] ||
 		unsupported["attach_file_to_document"] {
 		t.Fatalf("did not expect business tools on unsupported profile, got %v", unsupported)
 	}
@@ -213,6 +216,7 @@ func TestBusinessReadOnlyModeDoesNotRegisterWriteTools(t *testing.T) {
 		"update_sales_invoice",
 		"create_sales_document",
 		"update_sales_document",
+		"update_document_attachment_metadata",
 		"attach_file_to_document",
 	} {
 		if toolsList[writeTool] {
@@ -226,6 +230,8 @@ func TestBusinessReadOnlyModeDoesNotRegisterWriteTools(t *testing.T) {
 		"read_contracts",
 		"read_sales_invoices",
 		"read_sales_documents",
+		"read_document_attachments",
+		"get_document_attachment_content",
 	} {
 		if !toolsList[readTool] {
 			t.Fatalf("expected read tool %s in read_only mode, got %v", readTool, toolsList)

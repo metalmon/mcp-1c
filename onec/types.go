@@ -403,8 +403,11 @@ type DocumentAttachment struct {
 	Ref         string `json:"ref"` // UUID string
 	DocumentRef string `json:"document_ref"`
 	FileName    string `json:"file_name"`
+	Description string `json:"description,omitempty"`
 	MimeType    string `json:"mime_type,omitempty"`
 	SizeBytes   int64  `json:"size_bytes,omitempty"`
+	ContentBase64 string `json:"content_base64,omitempty"`
+	CreatedAt   string `json:"created_at,omitempty"`
 }
 
 // AttachFileToDocumentRequest is the request body for attaching file to document.
@@ -418,6 +421,43 @@ type AttachFileToDocumentRequest struct {
 
 // AttachFileToDocumentResult is the response from document attachment endpoint.
 type AttachFileToDocumentResult struct {
+	Success    bool               `json:"success"`
+	Attachment DocumentAttachment `json:"attachment"`
+}
+
+// ReadDocumentAttachmentsRequest is the request for listing attachments by document.
+type ReadDocumentAttachmentsRequest struct {
+	DocumentRef string `json:"document_ref"`
+	Limit       int    `json:"limit,omitempty"`
+	Search      string `json:"search,omitempty"`
+}
+
+// ReadDocumentAttachmentsResult is the response for attachments listing.
+type ReadDocumentAttachmentsResult struct {
+	Attachments []DocumentAttachment `json:"attachments"`
+	Total       int                  `json:"total"`
+	Truncated   bool                 `json:"truncated"`
+}
+
+// GetDocumentAttachmentContentRequest is the request for attachment content.
+type GetDocumentAttachmentContentRequest struct {
+	AttachmentRef string `json:"attachment_ref"`
+}
+
+// GetDocumentAttachmentContentResult is the response for attachment content.
+type GetDocumentAttachmentContentResult struct {
+	Attachment DocumentAttachment `json:"attachment"`
+}
+
+// UpdateDocumentAttachmentMetadataRequest is the request for attachment metadata update.
+type UpdateDocumentAttachmentMetadataRequest struct {
+	AttachmentRef string `json:"attachment_ref"`
+	FileName      string `json:"file_name,omitempty"`
+	Description   string `json:"description,omitempty"`
+}
+
+// UpdateDocumentAttachmentMetadataResult is the response for metadata update.
+type UpdateDocumentAttachmentMetadataResult struct {
 	Success    bool               `json:"success"`
 	Attachment DocumentAttachment `json:"attachment"`
 }
