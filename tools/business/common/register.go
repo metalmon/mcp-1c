@@ -19,5 +19,7 @@ func RegisterWriteTools(s *mcp.Server, onecClient *onec.Client) {
 	s.AddTool(tools.CreateCounterpartyTool(), tools.NewCreateCounterpartyHandler(onecClient))
 	s.AddTool(tools.CreateNomenclatureTool(), tools.NewCreateNomenclatureHandler(onecClient))
 	s.AddTool(tools.CreateSalesInvoiceTool(), tools.NewCreateSalesInvoiceHandler(onecClient))
+	s.AddTool(tools.UpdateSalesInvoiceTool(), tools.NewUpdateSalesInvoiceHandler(onecClient))
 	s.AddTool(tools.CreateSalesDocumentTool(), tools.NewCreateSalesDocumentHandler(onecClient))
+	s.AddTool(tools.UpdateSalesDocumentTool(), tools.NewUpdateSalesDocumentHandler(onecClient))
 }

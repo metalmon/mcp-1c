@@ -4,6 +4,10 @@
 	ВызватьИсключение "generic profile: create_sales_* tools are not implemented";
 КонецФункции
 
+Функция ОбновитьДокументПродаж(Параметры, ТипДокумента) Экспорт
+	ВызватьИсключение "generic profile: update_sales_* tools are not implemented";
+КонецФункции
+
 Функция ПрочитатьКонтрагентов(Параметры) Экспорт
 	ВызватьИсключение "generic profile: read_counterparties is not implemented";
 КонецФункции

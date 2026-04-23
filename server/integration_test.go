@@ -265,8 +265,8 @@ func TestIntegration_ListTools(t *testing.T) {
 		"get_event_log", "get_configuration_info", "read_counterparties",
 		"create_counterparty", "read_nomenclature", "create_nomenclature",
 		"read_organizations", "read_contracts",
-		"read_sales_invoices", "create_sales_invoice",
-		"read_sales_documents", "create_sales_document",
+		"read_sales_invoices", "create_sales_invoice", "update_sales_invoice",
+		"read_sales_documents", "create_sales_document", "update_sales_document",
 		"bsl_syntax_help",
 	}
 	for _, want := range expected {
@@ -299,8 +299,8 @@ func TestIntegration_ListToolsDeveloperOnly(t *testing.T) {
 	if toolNames["read_counterparties"] || toolNames["create_counterparty"] ||
 		toolNames["read_nomenclature"] || toolNames["create_nomenclature"] ||
 		toolNames["read_organizations"] || toolNames["read_contracts"] ||
-		toolNames["read_sales_invoices"] || toolNames["create_sales_invoice"] ||
-		toolNames["read_sales_documents"] || toolNames["create_sales_document"] {
+		toolNames["read_sales_invoices"] || toolNames["create_sales_invoice"] || toolNames["update_sales_invoice"] ||
+		toolNames["read_sales_documents"] || toolNames["create_sales_document"] || toolNames["update_sales_document"] {
 		t.Fatalf("business tools must be hidden in developer mode: %v", toolNames)
 	}
 	if !toolNames["get_metadata_tree"] {
@@ -324,8 +324,8 @@ func TestIntegration_ListToolsBusinessUnsupportedProfile(t *testing.T) {
 		if tool.Name == "read_counterparties" || tool.Name == "create_counterparty" ||
 			tool.Name == "read_nomenclature" || tool.Name == "create_nomenclature" ||
 			tool.Name == "read_organizations" || tool.Name == "read_contracts" ||
-			tool.Name == "read_sales_invoices" || tool.Name == "create_sales_invoice" ||
-			tool.Name == "read_sales_documents" || tool.Name == "create_sales_document" {
+			tool.Name == "read_sales_invoices" || tool.Name == "create_sales_invoice" || tool.Name == "update_sales_invoice" ||
+			tool.Name == "read_sales_documents" || tool.Name == "create_sales_document" || tool.Name == "update_sales_document" {
 			t.Fatalf("did not expect business tools for unsupported profile: %v", result.Tools)
 		}
 	}
@@ -355,7 +355,9 @@ func TestIntegration_ListToolsBusinessReadOnly(t *testing.T) {
 		"create_counterparty",
 		"create_nomenclature",
 		"create_sales_invoice",
+		"update_sales_invoice",
 		"create_sales_document",
+		"update_sales_document",
 	} {
 		if toolNames[writeTool] {
 			t.Fatalf("did not expect write tool %s in read_only mode, got %v", writeTool, toolNames)

@@ -314,6 +314,24 @@ type CreateSalesInvoiceResult struct {
 	Document SalesInvoice `json:"document"`
 }
 
+// UpdateSalesInvoiceRequest is the request body for updating buyer invoice.
+type UpdateSalesInvoiceRequest struct {
+	Ref             string      `json:"ref"`
+	OrganizationRef string      `json:"organization_ref,omitempty"`
+	CounterpartyRef string      `json:"counterparty_ref,omitempty"`
+	ContractRef     string      `json:"contract_ref,omitempty"`
+	Date            string      `json:"date,omitempty"`
+	Comment         string      `json:"comment,omitempty"`
+	Post            bool        `json:"post"`
+	Items           []SalesItem `json:"items,omitempty"`
+}
+
+// UpdateSalesInvoiceResult is the response from invoice update endpoint.
+type UpdateSalesInvoiceResult struct {
+	Success  bool         `json:"success"`
+	Document SalesInvoice `json:"document"`
+}
+
 // SalesDocument represents a sales act/waybill document.
 type SalesDocument struct {
 	Ref          string `json:"ref"` // UUID string
@@ -357,6 +375,25 @@ type CreateSalesDocumentRequest struct {
 
 // CreateSalesDocumentResult is the response from sales document create endpoint.
 type CreateSalesDocumentResult struct {
+	Success  bool          `json:"success"`
+	Document SalesDocument `json:"document"`
+}
+
+// UpdateSalesDocumentRequest is the request body for updating sales document.
+type UpdateSalesDocumentRequest struct {
+	Ref             string      `json:"ref"`
+	OrganizationRef string      `json:"organization_ref,omitempty"`
+	CounterpartyRef string      `json:"counterparty_ref,omitempty"`
+	ContractRef     string      `json:"contract_ref,omitempty"`
+	InvoiceRef      string      `json:"invoice_ref,omitempty"`
+	Date            string      `json:"date,omitempty"`
+	Comment         string      `json:"comment,omitempty"`
+	Post            bool        `json:"post"`
+	Items           []SalesItem `json:"items,omitempty"`
+}
+
+// UpdateSalesDocumentResult is the response from sales document update endpoint.
+type UpdateSalesDocumentResult struct {
 	Success  bool          `json:"success"`
 	Document SalesDocument `json:"document"`
 }

@@ -35,6 +35,18 @@ type createSalesDocumentInput struct {
 	Items           []onec.SalesItem `json:"items,omitempty"`
 }
 
+type updateSalesDocumentInput struct {
+	Ref             string           `json:"ref"`
+	OrganizationRef string           `json:"organization_ref,omitempty"`
+	CounterpartyRef string           `json:"counterparty_ref,omitempty"`
+	ContractRef     string           `json:"contract_ref,omitempty"`
+	InvoiceRef      string           `json:"invoice_ref,omitempty"`
+	Date            string           `json:"date,omitempty"`
+	Comment         string           `json:"comment,omitempty"`
+	Post            bool             `json:"post"`
+	Items           []onec.SalesItem `json:"items,omitempty"`
+}
+
 func ReadSalesDocumentsTool() *mcp.Tool {
 	return &mcp.Tool{
 		Name:  "read_sales_documents",
@@ -154,6 +166,79 @@ func NewCreateSalesDocumentHandler(client *onec.Client) mcp.ToolHandler {
 	}
 }
 
+func UpdateSalesDocumentTool() *mcp.Tool {
+	return &mcp.Tool{
+		Name:  "update_sales_document",
+		Title: "Обновление реализации",
+		Description: "Инструмент 1С: обновить документ РеализацияТоваровУслуг по ref. " +
+			"Обязательное поле: ref. Допустимо обновлять organization_ref, counterparty_ref, contract_ref, invoice_ref, date, comment, items и post. " +
+			"Для post=true после обновления должна быть хотя бы одна товарная позиция с quantity>0 и price>0.",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"ref":{"type":"string","description":"Ссылка документа (UUID)"},
+				"organization_ref":{"type":"string","description":"Ссылка организации (UUID)"},
+				"counterparty_ref":{"type":"string","description":"Ссылка контрагента (UUID)"},
+				"contract_ref":{"type":"string","description":"Ссылка договора (UUID)"},
+				"invoice_ref":{"type":"string","description":"Ссылка счета покупателю (UUID)"},
+				"date":{"type":"string","description":"Дата документа в формате XML даты 1С (например, 2026-04-20T00:00:00)"},
+				"comment":{"type":"string","description":"Комментарий"},
+				"post":{"type":"boolean","description":"Провести документ после записи"},
+				"items":{
+					"type":"array",
+					"description":"Полная замена строк табличной части Товары",
+					"items":{
+						"type":"object",
+						"properties":{
+							"nomenclature_ref":{"type":"string","description":"Ссылка номенклатуры (UUID)"},
+							"quantity":{"type":"number","description":"Количество"},
+							"price":{"type":"number","description":"Цена"}
+						},
+						"required":["nomenclature_ref","quantity","price"]
+					}
+				}
+			},
+			"required":["ref"]
+		}`),
+	}
+}
+
+func NewUpdateSalesDocumentHandler(client *onec.Client) mcp.ToolHandler {
+	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var input updateSalesDocumentInput
+		if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
+			return nil, fmt.Errorf("parsing input: %w", err)
+		}
+		if strings.TrimSpace(input.Ref) == "" {
+			return nil, fmt.Errorf("ref is required")
+		}
+		if input.Post && len(input.Items) > 0 {
+			if err := validatePostItems(input.Items); err != nil {
+				return nil, err
+			}
+		}
+		body := onec.UpdateSalesDocumentRequest{
+			Ref:             strings.TrimSpace(input.Ref),
+			OrganizationRef: strings.TrimSpace(input.OrganizationRef),
+			CounterpartyRef: strings.TrimSpace(input.CounterpartyRef),
+			ContractRef:     strings.TrimSpace(input.ContractRef),
+			InvoiceRef:      strings.TrimSpace(input.InvoiceRef),
+			Date:            strings.TrimSpace(input.Date),
+			Comment:         strings.TrimSpace(input.Comment),
+			Post:            input.Post,
+			Items:           input.Items,
+		}
+		var result onec.UpdateSalesDocumentResult
+		if err := client.Post(ctx, "/sales-document", body, &result); err != nil {
+			return nil, fmt.Errorf("updating sales document in 1C: %w", err)
+		}
+		if !result.Success {
+			return nil, fmt.Errorf("1C returned unsuccessful update result")
+		}
+		return textResult(formatUpdateSalesDocumentResult(&result)), nil
+	}
+}
+
 func formatSalesDocumentsReadResult(r *onec.ReadSalesDocumentsResult) string {
 	var b strings.Builder
 	b.WriteString("# Реализации\n\n")
@@ -177,6 +262,19 @@ func formatCreateSalesDocumentResult(r *onec.CreateSalesDocumentResult) string {
 	doc := r.Document
 	var b strings.Builder
 	b.WriteString("# Реализация создана\n\n")
+	fmt.Fprintf(&b, "- Ref: %s\n", doc.Ref)
+	fmt.Fprintf(&b, "- Number: %s\n", doc.Number)
+	if doc.Date != "" {
+		fmt.Fprintf(&b, "- Date: %s\n", doc.Date)
+	}
+	fmt.Fprintf(&b, "- Posted: %t\n", doc.Posted)
+	return b.String()
+}
+
+func formatUpdateSalesDocumentResult(r *onec.UpdateSalesDocumentResult) string {
+	doc := r.Document
+	var b strings.Builder
+	b.WriteString("# Реализация обновлена\n\n")
 	fmt.Fprintf(&b, "- Ref: %s\n", doc.Ref)
 	fmt.Fprintf(&b, "- Number: %s\n", doc.Number)
 	if doc.Date != "" {
