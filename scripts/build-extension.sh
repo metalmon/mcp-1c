@@ -12,7 +12,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-EXTENSION_SRC="$PROJECT_DIR/extension/src"
+EXT_PROFILE="${EXT_PROFILE:-generic}"
+BASE_SRC="$PROJECT_DIR/extension/src"
+PROFILE_SRC="$PROJECT_DIR/extension/profiles/$EXT_PROFILE/src"
+BUILD_SRC="$(mktemp -d "${TMPDIR:-/tmp}/mcp-1c-ext-src-XXXXXX")"
+cp -R "$BASE_SRC"/. "$BUILD_SRC"/
+if [ -d "$PROFILE_SRC" ]; then
+    cp -R "$PROFILE_SRC"/. "$BUILD_SRC"/
+fi
+EXTENSION_SRC="$BUILD_SRC"
 EXTENSION_NAME="MCP_HTTPService"
 
 # Собираем все найденные бинарники 1C (macOS)
@@ -29,7 +37,8 @@ collect_1c_binaries() {
 
 # Аргументы
 INFOBASE="${1:?Использование: ./scripts/build-extension.sh <путь_к_базе> [путь_к_output.cfe]}"
-OUTPUT="${2:-$PROJECT_DIR/extension/$EXTENSION_NAME.cfe}"
+OUTPUT="${2:-$PROJECT_DIR/extension/$EXTENSION_NAME-$EXT_PROFILE.cfe}"
+trap 'rm -rf "$BUILD_SRC"' EXIT
 
 # Если DESIGNER задан явно — используем его
 if [ -n "${DESIGNER:-}" ]; then

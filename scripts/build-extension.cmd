@@ -15,7 +15,14 @@ setlocal enabledelayedexpansion
 
 set "SCRIPT_DIR=%~dp0"
 set "PROJECT_DIR=%SCRIPT_DIR%.."
-set "EXTENSION_SRC=%PROJECT_DIR%\extension\src"
+if "%EXT_PROFILE%"=="" set "EXT_PROFILE=generic"
+set "BASE_SRC=%PROJECT_DIR%\extension\src"
+set "PROFILE_SRC=%PROJECT_DIR%\extension\profiles\%EXT_PROFILE%\src"
+set "BUILD_SRC=%TEMP%\mcp-1c-ext-src-%RANDOM%%RANDOM%"
+mkdir "%BUILD_SRC%" >nul 2>&1
+xcopy "%BASE_SRC%\*" "%BUILD_SRC%\" /E /I /Y >nul
+if exist "%PROFILE_SRC%\" xcopy "%PROFILE_SRC%\*" "%BUILD_SRC%\" /E /I /Y >nul
+set "EXTENSION_SRC=%BUILD_SRC%"
 set "EXTENSION_NAME=MCP_HTTPService"
 
 :: ── Аргументы ──────────────────────────────────────
@@ -28,7 +35,7 @@ if "%INFOBASE%"=="" (
     exit /b 1
 )
 
-if "%OUTPUT%"=="" set "OUTPUT=%PROJECT_DIR%\extension\%EXTENSION_NAME%.cfe"
+if "%OUTPUT%"=="" set "OUTPUT=%PROJECT_DIR%\extension\%EXTENSION_NAME%-%EXT_PROFILE%.cfe"
 
 :: ── Проверяем исходники ────────────────────────────
 if not exist "%EXTENSION_SRC%\Configuration.xml" (
@@ -137,3 +144,4 @@ if %errorlevel% neq 0 (
 
 echo Готово: %OUTPUT%
 dir "%OUTPUT%"
+if exist "%BUILD_SRC%\" rmdir /S /Q "%BUILD_SRC%"

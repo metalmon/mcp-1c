@@ -2,10 +2,11 @@ package server
 
 import (
 	"github.com/feenlace/mcp-1c/dump"
-	"github.com/feenlace/mcp-1c/internal/profile"
 	"github.com/feenlace/mcp-1c/onec"
 	"github.com/feenlace/mcp-1c/prompts"
 	"github.com/feenlace/mcp-1c/tools"
+	businessbuh30 "github.com/feenlace/mcp-1c/tools/business/buh30"
+	businessgeneric "github.com/feenlace/mcp-1c/tools/business/generic"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -19,6 +20,9 @@ func New(version string, onecClient *onec.Client, dumpIndex *dump.Index, options
 		}
 		if options[0].Profile != "" {
 			cfg.Profile = options[0].Profile
+		}
+		if options[0].Access != "" {
+			cfg.Access = options[0].Access
 		}
 	}
 
@@ -35,10 +39,10 @@ func New(version string, onecClient *onec.Client, dumpIndex *dump.Index, options
 		registerDeveloperTools(s, onecClient, dumpIndex)
 		prompts.RegisterAll(s)
 	case ToolsetBusiness:
-		registerBusinessTools(s, onecClient, cfg.Profile)
+		registerBusinessTools(s, onecClient, cfg.Profile, cfg.Access)
 	default:
 		registerDeveloperTools(s, onecClient, dumpIndex)
-		registerBusinessTools(s, onecClient, cfg.Profile)
+		registerBusinessTools(s, onecClient, cfg.Profile, cfg.Access)
 		prompts.RegisterAll(s)
 	}
 	return s
@@ -65,30 +69,11 @@ func registerDeveloperTools(s *mcp.Server, onecClient *onec.Client, dumpIndex *d
 	tools.RegisterBSLHelp(s)
 }
 
-func registerBusinessTools(s *mcp.Server, onecClient *onec.Client, resolvedProfile string) {
-	if !isBusinessToolSupported("read_counterparties", resolvedProfile) {
-		return
+func registerBusinessTools(s *mcp.Server, onecClient *onec.Client, resolvedProfile string, access AccessMode) {
+	switch resolvedProfile {
+	case "buh_3_0":
+		businessbuh30.RegisterTools(s, onecClient, access == AccessReadOnly)
+	case "generic":
+		businessgeneric.RegisterTools(s, onecClient, access == AccessReadOnly)
 	}
-	s.AddTool(tools.ReadCounterpartiesTool(), tools.NewReadCounterpartiesHandler(onecClient))
-	s.AddTool(tools.CreateCounterpartyTool(), tools.NewCreateCounterpartyHandler(onecClient))
-}
-
-func isBusinessToolSupported(toolName, resolvedProfile string) bool {
-	supported := map[string]map[string]struct{}{
-		"read_counterparties": {
-			profile.Buh30:   {},
-			profile.Generic: {},
-		},
-		"create_counterparty": {
-			profile.Buh30:   {},
-			profile.Generic: {},
-		},
-	}
-
-	profiles, ok := supported[toolName]
-	if !ok {
-		return false
-	}
-	_, ok = profiles[resolvedProfile]
-	return ok
 }

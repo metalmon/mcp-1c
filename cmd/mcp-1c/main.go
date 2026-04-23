@@ -17,7 +17,6 @@ import (
 	"github.com/feenlace/mcp-1c/internal/profile"
 	"github.com/feenlace/mcp-1c/onec"
 	"github.com/feenlace/mcp-1c/server"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // version is set at build time via ldflags:
@@ -42,8 +41,12 @@ func main() {
 	cacheDir := flag.String("cache-dir", "", "Directory for index cache and logs (default: platform cache dir)")
 	reindex := flag.Bool("reindex", false, "Force rebuild of search index cache")
 	toolsetFlag := flag.String("toolset", string(server.ToolsetAll), "Toolset to expose: developer|business|all")
+	accessFlag := flag.String("access", string(server.AccessReadWrite), "Access mode for business tools: read_write|read_only")
 	profileFlag := flag.String("profile", profile.Auto, "Configuration profile: auto|generic|buh_3_0|unknown")
 	installDB := flag.String("install", "", "Install extension into 1C database at given path")
+	installProfile := flag.String("install-profile", profile.Generic, "Extension profile for --install: generic|buh_3_0")
+	transportFlag := flag.String("transport", transportStdio, "MCP transport: stdio|http")
+	listenAddrFlag := flag.String("listen", defaultHTTPListenAddr, "Listen address for --transport=http")
 	serverMode := flag.Bool("server", false, `Treat --install value as server connection string (server\database)`)
 	platformPath := flag.String("platform", "", "Path to 1C platform executable (auto-detected if omitted)")
 	platformVersion := flag.String("platform-version", "", "1C platform version override (e.g. 8.3.13), auto-detected from path if omitted")
@@ -74,7 +77,12 @@ func main() {
 	// Install mode.
 	if *installDB != "" {
 		fmt.Println("Installing MCP extension into 1C database...")
-		if err := installer.Install(extension.Source, *installDB, *serverMode, *platformPath, *dbUser, *dbPassword, *platformVersion); err != nil {
+		extSource, extRoot, extOverlayRoot, err := extension.SourceForInstallProfile(*installProfile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "invalid --install-profile: %v\n", err)
+			os.Exit(1)
+		}
+		if err := installer.Install(extSource, extRoot, extOverlayRoot, *installDB, *serverMode, *platformPath, *dbUser, *dbPassword, *platformVersion); err != nil {
 			fmt.Fprintf(os.Stderr, "Installation error: %v\n", err)
 			os.Exit(1)
 		}
@@ -101,6 +109,21 @@ func main() {
 	toolset, err := server.ParseToolset(*toolsetFlag)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid --toolset: %v\n", err)
+		os.Exit(1)
+	}
+	accessMode, err := server.ParseAccessMode(*accessFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid --access: %v\n", err)
+		os.Exit(1)
+	}
+	transportMode, err := normalizeTransport(*transportFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid --transport: %v\n", err)
+		os.Exit(1)
+	}
+	listenAddr, err := normalizeListenAddr(*listenAddrFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid --listen: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -135,9 +158,10 @@ func main() {
 	s := server.New(version, client, dumpIndex, server.Options{
 		Toolset: toolset,
 		Profile: resolvedProfile,
+		Access:  accessMode,
 	})
 
-	if err := s.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
+	if err := runServer(context.Background(), s, transportMode, listenAddr); err != nil {
 		fmt.Fprintf(os.Stderr, "mcp-1c error: %v\n", err)
 		os.Exit(1)
 	}

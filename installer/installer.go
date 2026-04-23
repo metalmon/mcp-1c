@@ -2,7 +2,6 @@ package installer
 
 import (
 	"bytes"
-	"embed"
 	"fmt"
 	"io/fs"
 	"os"
@@ -93,7 +92,7 @@ func parsePlatformVersion(platformExe, overrideVersion string) (major, minor int
 // (MS SQL, PostgreSQL) and DESIGNER is invoked with /S instead of /F.
 //
 //garble:ignore
-func Install(srcFS embed.FS, dbPath string, serverMode bool, platformExe, dbUser, dbPassword, platformVersion string) error {
+func Install(srcFS fs.FS, srcRoot, overlayRoot, dbPath string, serverMode bool, platformExe, dbUser, dbPassword, platformVersion string) error {
 	if platformExe == "" {
 		var err error
 		platformExe, err = FindPlatform()
@@ -110,8 +109,13 @@ func Install(srcFS embed.FS, dbPath string, serverMode bool, platformExe, dbUser
 	}
 	defer os.RemoveAll(extDir)
 
-	if err := extractFS(srcFS, "src", extDir); err != nil {
+	if err := extractFS(srcFS, srcRoot, extDir); err != nil {
 		return fmt.Errorf("extracting extension sources: %w", err)
+	}
+	if overlayRoot != "" {
+		if err := extractFS(srcFS, overlayRoot, extDir); err != nil {
+			return fmt.Errorf("extracting extension overlay: %w", err)
+		}
 	}
 
 	// Patch XML format version to match the target platform.
@@ -401,7 +405,7 @@ func patchExtensionXML(path, compatMode, interfaceMode string) error {
 }
 
 // extractFS copies files from an embed.FS subtree into a directory on disk.
-func extractFS(fsys embed.FS, root, destDir string) error {
+func extractFS(fsys fs.FS, root, destDir string) error {
 	return fs.WalkDir(fsys, root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -412,7 +416,7 @@ func extractFS(fsys embed.FS, root, destDir string) error {
 		if d.IsDir() {
 			return os.MkdirAll(target, 0o755)
 		}
-		data, err := fsys.ReadFile(path)
+		data, err := fs.ReadFile(fsys, path)
 		if err != nil {
 			return err
 		}

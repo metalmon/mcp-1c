@@ -52,6 +52,41 @@ func TestParseToolset(t *testing.T) {
 	}
 }
 
+func TestParseAccessMode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		value   string
+		want    AccessMode
+		wantErr bool
+	}{
+		{value: "", want: AccessReadWrite},
+		{value: "read_write", want: AccessReadWrite},
+		{value: "read_only", want: AccessReadOnly},
+		{value: "invalid", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.value, func(t *testing.T) {
+			t.Parallel()
+			got, err := ParseAccessMode(tt.value)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParseAccessMode() error = %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("ParseAccessMode() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestToolsetsAffectRegisteredTools(t *testing.T) {
 	t.Parallel()
 
@@ -83,6 +118,17 @@ func TestToolsetsAffectRegisteredTools(t *testing.T) {
 	if !businessTools["read_counterparties"] || !businessTools["create_counterparty"] {
 		t.Fatalf("expected business tools in business toolset, got %v", businessTools)
 	}
+	if !businessTools["read_nomenclature"] || !businessTools["create_nomenclature"] {
+		t.Fatalf("expected nomenclature tools in business toolset, got %v", businessTools)
+	}
+	for _, tool := range []string{
+		"read_organizations", "read_contracts", "read_sales_invoices",
+		"create_sales_invoice", "read_sales_documents", "create_sales_document",
+	} {
+		if !businessTools[tool] {
+			t.Fatalf("expected %s in business toolset, got %v", tool, businessTools)
+		}
+	}
 }
 
 func TestBusinessToolsetRespectsProfileSupport(t *testing.T) {
@@ -94,16 +140,24 @@ func TestBusinessToolsetRespectsProfileSupport(t *testing.T) {
 		Toolset: ToolsetBusiness,
 		Profile: "buh_3_0",
 	}))
-	if !supported["read_counterparties"] || !supported["create_counterparty"] {
-		t.Fatalf("expected counterparties tools on supported profile, got %v", supported)
+	if !supported["read_counterparties"] || !supported["create_counterparty"] ||
+		!supported["read_nomenclature"] || !supported["create_nomenclature"] ||
+		!supported["read_organizations"] || !supported["read_contracts"] ||
+		!supported["read_sales_invoices"] || !supported["create_sales_invoice"] ||
+		!supported["read_sales_documents"] || !supported["create_sales_document"] {
+		t.Fatalf("expected business tools on supported profile, got %v", supported)
 	}
 
 	unsupported := listToolNames(t, New("test", client, nil, Options{
 		Toolset: ToolsetBusiness,
 		Profile: "unknown",
 	}))
-	if unsupported["read_counterparties"] || unsupported["create_counterparty"] {
-		t.Fatalf("did not expect counterparties tools on unsupported profile, got %v", unsupported)
+	if unsupported["read_counterparties"] || unsupported["create_counterparty"] ||
+		unsupported["read_nomenclature"] || unsupported["create_nomenclature"] ||
+		unsupported["read_organizations"] || unsupported["read_contracts"] ||
+		unsupported["read_sales_invoices"] || unsupported["create_sales_invoice"] ||
+		unsupported["read_sales_documents"] || unsupported["create_sales_document"] {
+		t.Fatalf("did not expect business tools on unsupported profile, got %v", unsupported)
 	}
 }
 
@@ -135,6 +189,40 @@ func TestBusinessToolsetDoesNotRegisterDeveloperPrompts(t *testing.T) {
 	}
 	if len(result.Prompts) != 0 {
 		t.Fatalf("expected no prompts in business toolset, got %d", len(result.Prompts))
+	}
+}
+
+func TestBusinessReadOnlyModeDoesNotRegisterWriteTools(t *testing.T) {
+	t.Parallel()
+
+	client := onec.NewClient("http://localhost:8080/mcp", "", "")
+	toolsList := listToolNames(t, New("test", client, nil, Options{
+		Toolset: ToolsetBusiness,
+		Profile: "generic",
+		Access:  AccessReadOnly,
+	}))
+
+	for _, writeTool := range []string{
+		"create_counterparty",
+		"create_nomenclature",
+		"create_sales_invoice",
+		"create_sales_document",
+	} {
+		if toolsList[writeTool] {
+			t.Fatalf("did not expect write tool %s in read_only mode, got %v", writeTool, toolsList)
+		}
+	}
+	for _, readTool := range []string{
+		"read_counterparties",
+		"read_nomenclature",
+		"read_organizations",
+		"read_contracts",
+		"read_sales_invoices",
+		"read_sales_documents",
+	} {
+		if !toolsList[readTool] {
+			t.Fatalf("expected read tool %s in read_only mode, got %v", readTool, toolsList)
+		}
 	}
 }
 

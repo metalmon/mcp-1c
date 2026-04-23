@@ -263,7 +263,11 @@ func TestIntegration_ListTools(t *testing.T) {
 		"get_metadata_tree", "get_object_structure", "execute_query",
 		"search_code", "get_form_structure", "validate_query",
 		"get_event_log", "get_configuration_info", "read_counterparties",
-		"create_counterparty", "bsl_syntax_help",
+		"create_counterparty", "read_nomenclature", "create_nomenclature",
+		"read_organizations", "read_contracts",
+		"read_sales_invoices", "create_sales_invoice",
+		"read_sales_documents", "create_sales_document",
+		"bsl_syntax_help",
 	}
 	for _, want := range expected {
 		if !toolNames[want] {
@@ -292,7 +296,11 @@ func TestIntegration_ListToolsDeveloperOnly(t *testing.T) {
 	for _, tool := range result.Tools {
 		toolNames[tool.Name] = true
 	}
-	if toolNames["read_counterparties"] || toolNames["create_counterparty"] {
+	if toolNames["read_counterparties"] || toolNames["create_counterparty"] ||
+		toolNames["read_nomenclature"] || toolNames["create_nomenclature"] ||
+		toolNames["read_organizations"] || toolNames["read_contracts"] ||
+		toolNames["read_sales_invoices"] || toolNames["create_sales_invoice"] ||
+		toolNames["read_sales_documents"] || toolNames["create_sales_document"] {
 		t.Fatalf("business tools must be hidden in developer mode: %v", toolNames)
 	}
 	if !toolNames["get_metadata_tree"] {
@@ -313,12 +321,57 @@ func TestIntegration_ListToolsBusinessUnsupportedProfile(t *testing.T) {
 	}
 
 	for _, tool := range result.Tools {
-		if tool.Name == "read_counterparties" || tool.Name == "create_counterparty" {
+		if tool.Name == "read_counterparties" || tool.Name == "create_counterparty" ||
+			tool.Name == "read_nomenclature" || tool.Name == "create_nomenclature" ||
+			tool.Name == "read_organizations" || tool.Name == "read_contracts" ||
+			tool.Name == "read_sales_invoices" || tool.Name == "create_sales_invoice" ||
+			tool.Name == "read_sales_documents" || tool.Name == "create_sales_document" {
 			t.Fatalf("did not expect business tools for unsupported profile: %v", result.Tools)
 		}
 	}
 	if len(result.Tools) != 0 {
 		t.Fatalf("expected no tools for unsupported business profile, got %d", len(result.Tools))
+	}
+}
+
+func TestIntegration_ListToolsBusinessReadOnly(t *testing.T) {
+	session, cleanup := setupIntegrationWithOptions(t, Options{
+		Toolset: ToolsetBusiness,
+		Profile: "buh_3_0",
+		Access:  AccessReadOnly,
+	})
+	defer cleanup()
+
+	result, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools error: %v", err)
+	}
+
+	toolNames := make(map[string]bool)
+	for _, tool := range result.Tools {
+		toolNames[tool.Name] = true
+	}
+	for _, writeTool := range []string{
+		"create_counterparty",
+		"create_nomenclature",
+		"create_sales_invoice",
+		"create_sales_document",
+	} {
+		if toolNames[writeTool] {
+			t.Fatalf("did not expect write tool %s in read_only mode, got %v", writeTool, toolNames)
+		}
+	}
+	for _, readTool := range []string{
+		"read_counterparties",
+		"read_nomenclature",
+		"read_organizations",
+		"read_contracts",
+		"read_sales_invoices",
+		"read_sales_documents",
+	} {
+		if !toolNames[readTool] {
+			t.Fatalf("expected read tool %s in read_only mode, got %v", readTool, toolNames)
+		}
 	}
 }
 

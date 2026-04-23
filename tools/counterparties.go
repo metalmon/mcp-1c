@@ -39,7 +39,7 @@ func ReadCounterpartiesTool() *mcp.Tool {
 		Annotations: &mcp.ToolAnnotations{
 			ReadOnlyHint: true,
 		},
-		Description: "Получить контрагентов из справочника: список с поиском по наименованию/ИНН " +
+		Description: "Инструмент 1С: получить контрагентов из справочника: список с поиском по наименованию/ИНН " +
 			"или один элемент по code/ref.",
 		InputSchema: json.RawMessage(`{
 			"type":"object",
@@ -89,7 +89,7 @@ func CreateCounterpartyTool() *mcp.Tool {
 	return &mcp.Tool{
 		Name:  "create_counterparty",
 		Title: "Создание контрагента",
-		Description: "Создать контрагента с обязательными полями: Наименование, ИНН, КПП, Вид контрагента. " +
+		Description: "Инструмент 1С: создать контрагента с обязательными полями: Наименование, ИНН, КПП, Вид контрагента. " +
 			"counterparty_type: legal|individual.",
 		InputSchema: json.RawMessage(`{
 			"type":"object",

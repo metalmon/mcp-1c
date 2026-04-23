@@ -123,3 +123,40 @@ func TestResolveReturnsValidationError(t *testing.T) {
 		t.Fatal("expected validation error")
 	}
 }
+
+func TestNormalizeInstallProfile(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{name: "default generic", input: "", want: Generic},
+		{name: "generic", input: "generic", want: Generic},
+		{name: "buh", input: "buh_3_0", want: Buh30},
+		{name: "auto is not allowed", input: "auto", wantErr: true},
+		{name: "unknown is not allowed", input: "unknown", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := NormalizeInstallProfile(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected validation error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("NormalizeInstallProfile() error = %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("NormalizeInstallProfile() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

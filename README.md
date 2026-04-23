@@ -91,6 +91,9 @@ MCP-1C не привязан к конкретной нейросети. Раб�
 # Windows
 mcp-1c --install "C:\путь\к\базе"
 
+# Установка профиля Бухгалтерия предприятия 3.0
+mcp-1c --install "C:\путь\к\базе" --install-profile buh_3_0
+
 # macOS / Linux
 mcp-1c --install ~/Documents/InfoBase
 
@@ -126,7 +129,11 @@ mcp-1c --install "srv-1c\buh_prod" --server --db-user Admin --db-password pass
     },
     "1c-business": {
       "command": "/path/to/mcp-1c",
-      "args": ["--base", "http://localhost:8080/hs/mcp-1c", "--toolset", "business", "--profile", "auto"]
+      "args": ["--base", "http://localhost:8080/hs/mcp-1c", "--toolset", "business", "--profile", "auto", "--access", "read_write"]
+    },
+    "1c-business-ro": {
+      "command": "/path/to/mcp-1c",
+      "args": ["--base", "http://localhost:8080/hs/mcp-1c", "--toolset", "business", "--profile", "auto", "--access", "read_only"]
     }
   }
 }
@@ -154,6 +161,15 @@ mcp-1c --install "srv-1c\buh_prod" --server --db-user Admin --db-password pass
 | `validate_query` | Проверить синтаксис запроса без выполнения |
 | `get_event_log` | Чтение журнала регистрации с фильтрацией по дате, уровню и пользователю |
 
+### Business tools (demo)
+
+- `read_counterparties`, `create_counterparty`
+- `read_nomenclature`, `create_nomenclature`
+- `read_organizations`
+- `read_contracts`
+- `read_sales_invoices`, `create_sales_invoice`
+- `read_sales_documents`, `create_sales_document`
+
 ## Конфигурация
 
 | Флаг | Env var | По умолчанию | Описание |
@@ -165,7 +181,9 @@ mcp-1c --install "srv-1c\buh_prod" --server --db-user Admin --db-password pass
 | `--reindex` | — | — | Принудительная перестройка поискового индекса (игнорирует кеш) |
 | `--toolset` | — | `all` | Набор инструментов: `developer`, `business`, `all` |
 | `--profile` | — | `auto` | Профиль конфигурации для business tools: `auto`, `generic`, `buh_3_0`, `unknown` |
+| `--access` | — | `read_write` | Режим доступа бизнес-инструментов: `read_write` или `read_only` (write tools не регистрируются) |
 | `--install` | — | — | Установить расширение в базу 1С по указанному пути |
+| `--install-profile` | — | `generic` | Профиль исходников расширения для `--install`: `generic` или `buh_3_0` |
 | `--server` | — | — | Режим клиент-серверной базы: `--install` принимает строку подключения `сервер\база` (например `srv-1c\buh_prod`) |
 | `--platform` | — | — | Путь к бинарнику 1С (автоопределение, если не указан) |
 | `--platform-version` | — | — | Версия платформы 1С (например `8.3.13`). Определяется автоматически из пути к платформе. Укажите вручную, если платформа установлена в нестандартный путь без информации о версии. Минимальная поддерживаемая версия: 8.3.10 |
@@ -175,10 +193,30 @@ mcp-1c --install "srv-1c\buh_prod" --server --db-user Admin --db-password pass
 ### Разделение инструментов по toolset/profile
 
 - `--toolset developer` — только инструменты разработки (`get_metadata_tree`, `execute_query`, `search_code`, и т.д.).
-- `--toolset business` — только бизнес-инструменты (сейчас: `read_counterparties`, `create_counterparty`).
+- `--toolset business` — только бизнес-инструменты (сейчас: `read_counterparties`, `create_counterparty`, `read_nomenclature`, `create_nomenclature`).
 - `--toolset all` — оба набора (режим по умолчанию, обратная совместимость).
 - `--profile auto` — автоопределение профиля по `/configuration` (fallback в `generic`, если endpoint недоступен).
+- `--access read_only` — только read business tools; инструменты записи (`create_*`) не регистрируются в MCP вообще.
 - Business tools регистрируются только для поддержанных профилей. В `v1` поддержаны `buh_3_0` и `generic`.
+
+### Родная профильная схема (рекомендуется)
+
+- `install-profile=buh_3_0` + `--profile buh_3_0` — рабочий бизнес-контур БП 3.0.
+- `install-profile=generic` + `--profile generic` — безопасный fallback-контур (business `not implemented`).
+- Для параллельной работы удобно поднимать два MCP-инстанса с разными именами серверов в клиенте.
+
+Быстрые команды:
+
+- `make install-buh30`
+- `make install-generic`
+- `make run-mcp-business-buh30`
+- `make run-mcp-business-generic`
+
+### Contract for `ref`
+
+- Поле `ref` в business API всегда содержит UUID-строку.
+- Для `read_*` инструментов с параметром `ref` ожидается UUID; невалидный формат должен возвращать `400`.
+- `create_*` и `read_*` пары поддерживают round-trip по `ref`: значение `ref` из `create_*` пригодно для точечного чтения через `read_*`.
 
 ### Cursor и авторизация
 
@@ -202,6 +240,10 @@ go run ./cmd/mock-1c -port 9191           # mock-сервер 1С
 
 Исходники расширения хранятся в `extension/src/` в формате XML-выгрузки конфигурации. При `--install` они встроены в бинарник через `go:embed` и загружаются напрямую через DESIGNER `/LoadConfigFromFiles`. Готовый .cfe файл для сборки не требуется.
 
+`--install-profile` добавляет profile-aware выбор расширения в install-пайплайн через overlay-модель: сначала загружается базовый `extension/src`, затем применяются профильные переопределения из `extension/profiles/<profile>/src`.
+
+Для `generic` в overlay сейчас вынесен fallback `MCPBusinessFacade`: business endpoints возвращают контролируемый `not implemented` вместо БП-специфичной логики.
+
 Для ручной установки без CLI можно собрать .cfe из исходников:
 
 ```bash
@@ -210,7 +252,12 @@ go run ./cmd/mock-1c -port 9191           # mock-сервер 1С
 
 # Windows
 scripts\build-extension.cmd C:\Users\User\Documents\InfoBase
+
+# Сборка profile-specific CFE
+set EXT_PROFILE=buh_3_0 && scripts\build-extension.cmd C:\Users\User\Documents\InfoBase
 ```
+
+Скрипты `build-extension.*` используют `EXT_PROFILE` (по умолчанию `generic`) и собирают расширение по схеме base + overlay: `extension/src` + `extension/profiles/<profile>/src`.
 
 ## Совместимость
 

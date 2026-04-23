@@ -122,7 +122,7 @@ type EventLogEntry struct {
 
 // Counterparty represents a 1C counterparty.
 type Counterparty struct {
-	Ref              string `json:"ref"`
+	Ref              string `json:"ref"` // UUID string
 	Code             string `json:"code"`
 	Name             string `json:"name"`
 	INN              string `json:"inn"`
@@ -159,4 +159,204 @@ type CreateCounterpartyRequest struct {
 type CreateCounterpartyResult struct {
 	Success      bool         `json:"success"`
 	Counterparty Counterparty `json:"counterparty"`
+}
+
+// Nomenclature represents a 1C nomenclature item.
+type Nomenclature struct {
+	Ref              string `json:"ref"` // UUID string
+	Code             string `json:"code"`
+	Name             string `json:"name"`
+	FullName         string `json:"full_name,omitempty"`
+	Article          string `json:"article,omitempty"`
+	NomenclatureType string `json:"nomenclature_type,omitempty"`
+	Unit             string `json:"unit,omitempty"`
+	IsService        bool   `json:"is_service"`
+}
+
+// CreateNomenclatureRequest is the request body for creating a nomenclature item.
+type CreateNomenclatureRequest struct {
+	Name             string `json:"name"`
+	FullName         string `json:"full_name,omitempty"`
+	Article          string `json:"article,omitempty"`
+	NomenclatureType string `json:"nomenclature_type,omitempty"`
+	Unit             string `json:"unit,omitempty"`
+	IsService        *bool  `json:"is_service,omitempty"`
+}
+
+// CreateNomenclatureResult is the response from nomenclature create endpoint.
+type CreateNomenclatureResult struct {
+	Success      bool         `json:"success"`
+	Nomenclature Nomenclature `json:"nomenclature"`
+}
+
+// ReadNomenclatureRequest is the request body for nomenclature read endpoint.
+type ReadNomenclatureRequest struct {
+	Search  string `json:"search,omitempty"`
+	Limit   int    `json:"limit,omitempty"`
+	Code    string `json:"code,omitempty"`
+	Ref     string `json:"ref,omitempty"`
+	Article string `json:"article,omitempty"`
+}
+
+// ReadNomenclatureResult is the response from nomenclature read endpoint.
+type ReadNomenclatureResult struct {
+	Nomenclature []Nomenclature `json:"nomenclature"`
+	Total        int            `json:"total"`
+	Truncated    bool           `json:"truncated"`
+}
+
+// Organization represents a 1C organization.
+type Organization struct {
+	Ref  string `json:"ref"` // UUID string
+	Code string `json:"code"`
+	Name string `json:"name"`
+	INN  string `json:"inn,omitempty"`
+	KPP  string `json:"kpp,omitempty"`
+}
+
+// ReadOrganizationsRequest is the request body for organizations read endpoint.
+type ReadOrganizationsRequest struct {
+	Search string `json:"search,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
+	Code   string `json:"code,omitempty"`
+	Ref    string `json:"ref,omitempty"`
+	INN    string `json:"inn,omitempty"`
+	KPP    string `json:"kpp,omitempty"`
+}
+
+// ReadOrganizationsResult is the response from organizations read endpoint.
+type ReadOrganizationsResult struct {
+	Organizations []Organization `json:"organizations"`
+	Total         int            `json:"total"`
+	Truncated     bool           `json:"truncated"`
+}
+
+// Contract represents a 1C counterparty contract.
+type Contract struct {
+	Ref          string `json:"ref"` // UUID string
+	Code         string `json:"code"`
+	Name         string `json:"name"`
+	Number       string `json:"number,omitempty"`
+	Date         string `json:"date,omitempty"`
+	Organization string `json:"organization,omitempty"`
+	Counterparty string `json:"counterparty,omitempty"`
+	Currency     string `json:"currency,omitempty"`
+}
+
+// ReadContractsRequest is the request body for contracts read endpoint.
+type ReadContractsRequest struct {
+	Search          string `json:"search,omitempty"`
+	Limit           int    `json:"limit,omitempty"`
+	Code            string `json:"code,omitempty"`
+	Ref             string `json:"ref,omitempty"`
+	Number          string `json:"number,omitempty"`
+	CounterpartyRef string `json:"counterparty_ref,omitempty"`
+	OrganizationRef string `json:"organization_ref,omitempty"`
+}
+
+// ReadContractsResult is the response from contracts read endpoint.
+type ReadContractsResult struct {
+	Contracts []Contract `json:"contracts"`
+	Total     int        `json:"total"`
+	Truncated bool       `json:"truncated"`
+}
+
+// SalesItem represents a line item for sales documents.
+type SalesItem struct {
+	NomenclatureRef string  `json:"nomenclature_ref"`
+	Quantity        float64 `json:"quantity"`
+	Price           float64 `json:"price"`
+}
+
+// SalesInvoice represents a buyer invoice document.
+type SalesInvoice struct {
+	Ref          string `json:"ref"` // UUID string
+	Number       string `json:"number"`
+	Date         string `json:"date,omitempty"`
+	Organization string `json:"organization,omitempty"`
+	Counterparty string `json:"counterparty,omitempty"`
+	Contract     string `json:"contract,omitempty"`
+	Amount       string `json:"amount,omitempty"`
+	Posted       bool   `json:"posted"`
+}
+
+// ReadSalesInvoicesRequest is the request body for invoices read endpoint.
+type ReadSalesInvoicesRequest struct {
+	Search          string `json:"search,omitempty"`
+	Limit           int    `json:"limit,omitempty"`
+	Ref             string `json:"ref,omitempty"`
+	Number          string `json:"number,omitempty"`
+	CounterpartyRef string `json:"counterparty_ref,omitempty"`
+	OrganizationRef string `json:"organization_ref,omitempty"`
+}
+
+// ReadSalesInvoicesResult is the response from invoices read endpoint.
+type ReadSalesInvoicesResult struct {
+	Documents []SalesInvoice `json:"documents"`
+	Total     int            `json:"total"`
+	Truncated bool           `json:"truncated"`
+}
+
+// CreateSalesInvoiceRequest is the request body for creating buyer invoice.
+type CreateSalesInvoiceRequest struct {
+	OrganizationRef string      `json:"organization_ref"`
+	CounterpartyRef string      `json:"counterparty_ref"`
+	ContractRef     string      `json:"contract_ref,omitempty"`
+	Date            string      `json:"date,omitempty"`
+	Comment         string      `json:"comment,omitempty"`
+	Post            bool        `json:"post"`
+	Items           []SalesItem `json:"items,omitempty"`
+}
+
+// CreateSalesInvoiceResult is the response from invoice create endpoint.
+type CreateSalesInvoiceResult struct {
+	Success  bool         `json:"success"`
+	Document SalesInvoice `json:"document"`
+}
+
+// SalesDocument represents a sales act/waybill document.
+type SalesDocument struct {
+	Ref          string `json:"ref"` // UUID string
+	Number       string `json:"number"`
+	Date         string `json:"date,omitempty"`
+	Organization string `json:"organization,omitempty"`
+	Counterparty string `json:"counterparty,omitempty"`
+	Contract     string `json:"contract,omitempty"`
+	Amount       string `json:"amount,omitempty"`
+	Posted       bool   `json:"posted"`
+}
+
+// ReadSalesDocumentsRequest is the request body for sales documents read endpoint.
+type ReadSalesDocumentsRequest struct {
+	Search          string `json:"search,omitempty"`
+	Limit           int    `json:"limit,omitempty"`
+	Ref             string `json:"ref,omitempty"`
+	Number          string `json:"number,omitempty"`
+	CounterpartyRef string `json:"counterparty_ref,omitempty"`
+	OrganizationRef string `json:"organization_ref,omitempty"`
+}
+
+// ReadSalesDocumentsResult is the response from sales documents read endpoint.
+type ReadSalesDocumentsResult struct {
+	Documents []SalesDocument `json:"documents"`
+	Total     int             `json:"total"`
+	Truncated bool            `json:"truncated"`
+}
+
+// CreateSalesDocumentRequest is the request body for creating sales document.
+type CreateSalesDocumentRequest struct {
+	OrganizationRef string      `json:"organization_ref"`
+	CounterpartyRef string      `json:"counterparty_ref"`
+	ContractRef     string      `json:"contract_ref,omitempty"`
+	InvoiceRef      string      `json:"invoice_ref,omitempty"`
+	Date            string      `json:"date,omitempty"`
+	Comment         string      `json:"comment,omitempty"`
+	Post            bool        `json:"post"`
+	Items           []SalesItem `json:"items,omitempty"`
+}
+
+// CreateSalesDocumentResult is the response from sales document create endpoint.
+type CreateSalesDocumentResult struct {
+	Success  bool          `json:"success"`
+	Document SalesDocument `json:"document"`
 }

@@ -28,6 +28,20 @@ func Normalize(value string) (string, error) {
 	}
 }
 
+// NormalizeInstallProfile validates profile value used by --install-profile.
+// Install mode supports only explicit extension profiles.
+func NormalizeInstallProfile(value string) (string, error) {
+	profile := strings.ToLower(strings.TrimSpace(value))
+	switch profile {
+	case "", Generic:
+		return Generic, nil
+	case Buh30:
+		return Buh30, nil
+	default:
+		return "", fmt.Errorf("unsupported install profile %q (allowed: generic|buh_3_0)", value)
+	}
+}
+
 // Resolve returns the effective profile.
 // If profileFlag is explicit (not auto), it is returned as-is.
 // If profileFlag is auto, the function tries to detect a known profile from /configuration.
