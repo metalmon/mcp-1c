@@ -5,10 +5,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/feenlace/mcp-1c/onec"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+// stripWhitespaceFromBase64 removes all Unicode whitespace from a base64 payload.
+// PEM-style line breaks or accidental spaces/newlines inside JSON strings break 1C Base64Значение
+// or decode to corrupted binaries (PDF then fails to open).
+func stripWhitespaceFromBase64(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, s)
+}
 
 type attachFileToDocumentInput struct {
 	DocumentRef   string `json:"document_ref"`
@@ -22,18 +35,21 @@ func AttachFileToDocumentTool() *mcp.Tool {
 	return &mcp.Tool{
 		Name:  "attach_file_to_document",
 		Title: "Прикрепление файла к документу",
-		Description: "Инструмент 1С: прикрепить файл к документу по document_ref. " +
-			"Файл передается в base64 без изменения формата.",
+		Description: "Прикрепляет файл к документу 1С (HTTP POST, JSON). " +
+			"Сигнатура для модели: обязательно знать document_ref целевого документа (типизированная ссылка Документ.<Имя>:<uuid>). " +
+			"Поля file_name и content_base64 обязательны для запроса к 1С: base64 — сырое содержимое файла без префикса data:..., без переносов строк внутри строки. " +
+			"Интегрированный клиент (например okta-chat): если пользователь приложил ровно один файл к последнему сообщению, клиент может сам подставить file_name, mime_type и content_base64 до вызова сервера — модели не нужно копировать base64 из «видения» картинки или из текста; достаточно document_ref и при необходимости comment. " +
+			"Прямой вызов MCP без такого хоста: передайте полный набор document_ref + file_name + content_base64 (+ mime_type по желанию).",
 		InputSchema: json.RawMessage(`{
 			"type":"object",
 			"properties":{
-				"document_ref":{"type":"string","description":"Типизированная ссылка документа (<metadataFullName>:<uuid>)"},
-				"file_name":{"type":"string","description":"Имя файла с расширением"},
-				"mime_type":{"type":"string","description":"MIME-тип файла, например application/pdf"},
-				"content_base64":{"type":"string","description":"Содержимое файла в формате base64"},
-				"comment":{"type":"string","description":"Комментарий к вложению"}
+				"document_ref":{"type":"string","description":"Типизированная ссылка документа: Документ.<ИмяМетаданных>:<uuid>"},
+				"file_name":{"type":"string","description":"Имя с расширением. При прямом MCP обязательно; в okta-chat с одним вложением у пользователя может подставить клиент."},
+				"mime_type":{"type":"string","description":"MIME, например application/pdf или image/png. Опционально; клиент может вывести из вложения."},
+				"content_base64":{"type":"string","description":"Сырой base64 тела файла. При прямом MCP обязательно целиком, не обрезать. Не восстанавливать из памяти модели — в okta-chat с одним вложением подставляет клиент из файла пользователя."},
+				"comment":{"type":"string","description":"Комментарий к вложению в 1С (опционально)"}
 			},
-			"required":["document_ref","file_name","content_base64"]
+			"required":["document_ref"]
 		}`),
 	}
 }
@@ -47,17 +63,16 @@ func NewAttachFileToDocumentHandler(client *onec.Client) mcp.ToolHandler {
 		if strings.TrimSpace(input.DocumentRef) == "" {
 			return nil, fmt.Errorf("document_ref is required")
 		}
-		if strings.TrimSpace(input.FileName) == "" {
-			return nil, fmt.Errorf("file_name is required")
-		}
-		if strings.TrimSpace(input.ContentBase64) == "" {
-			return nil, fmt.Errorf("content_base64 is required")
+		if strings.TrimSpace(input.FileName) == "" || strings.TrimSpace(input.ContentBase64) == "" {
+			return nil, fmt.Errorf(
+				"file_name and content_base64 are required (integrated MCP hosts may inject them from the user attachment before this call)",
+			)
 		}
 		body := onec.AttachFileToDocumentRequest{
 			DocumentRef:   strings.TrimSpace(input.DocumentRef),
 			FileName:      strings.TrimSpace(input.FileName),
 			MimeType:      strings.TrimSpace(input.MimeType),
-			ContentBase64: strings.TrimSpace(input.ContentBase64),
+			ContentBase64: stripWhitespaceFromBase64(strings.TrimSpace(input.ContentBase64)),
 			Comment:       strings.TrimSpace(input.Comment),
 		}
 		var result onec.AttachFileToDocumentResult

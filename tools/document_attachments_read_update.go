@@ -86,7 +86,7 @@ func GetDocumentAttachmentContentTool() *mcp.Tool {
 		InputSchema: json.RawMessage(`{
 			"type":"object",
 			"properties":{
-				"attachment_ref":{"type":"string","description":"Типизированная ссылка вложения (attachmentCatalog:<uuid>)"}
+				"attachment_ref":{"type":"string","description":"Типизированная ссылка каталога вложения (<metadataFullName>:<uuid>, например Справочник.СчетНаОплатуПокупателюПрисоединенныеФайлы:<uuid>)"}
 			},
 			"required":["attachment_ref"]
 		}`),
@@ -121,7 +121,7 @@ func UpdateDocumentAttachmentMetadataTool() *mcp.Tool {
 		InputSchema: json.RawMessage(`{
 			"type":"object",
 			"properties":{
-				"attachment_ref":{"type":"string","description":"Типизированная ссылка вложения (attachmentCatalog:<uuid>)"},
+				"attachment_ref":{"type":"string","description":"Типизированная ссылка каталога вложения (<metadataFullName>:<uuid>)"},
 				"file_name":{"type":"string","description":"Новое имя файла"},
 				"description":{"type":"string","description":"Новое описание вложения"}
 			},

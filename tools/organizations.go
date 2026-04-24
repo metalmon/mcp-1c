@@ -33,16 +33,16 @@ func ReadOrganizationsTool() *mcp.Tool {
 			ReadOnlyHint: true,
 		},
 		Description: "Инструмент 1С: получить организации: список с поиском по наименованию/ИНН " +
-			"или один элемент по code/ref/inn+kpp.",
+			"(в списке возвращаются ИНН и КПП, если заполнены) или один элемент по code/ref/inn+kpp.",
 		InputSchema: json.RawMessage(`{
 			"type":"object",
 			"properties":{
-				"search":{"type":"string","description":"Поиск по наименованию или ИНН"},
+				"search":{"type":"string","description":"Подстрочный поиск по краткому и полному наименованию или ИНН (регистр не важен; «» в наименовании игнорируются при сравнении)"},
 				"limit":{"type":"integer","description":"Максимум строк (по умолчанию 50, максимум 500)"},
 				"code":{"type":"string","description":"Код организации для точечного чтения"},
-				"ref":{"type":"string","description":"Ссылка организации (UUID) для точечного чтения"},
-				"inn":{"type":"string","description":"ИНН для точечного чтения"},
-				"kpp":{"type":"string","description":"КПП для точечного чтения (в паре с inn)"}
+				"ref":{"type":"string","description":"Типизированная ссылка организации (Справочник.Организации:<uuid>) для точечного чтения"},
+				"inn":{"type":"string","description":"ИНН для точечного чтения в паре с kpp (точное совпадение; подстрочный поиск по номеру — через search)"},
+				"kpp":{"type":"string","description":"КПП для точечного чтения в паре с inn (точное совпадение)"}
 			}
 		}`),
 	}

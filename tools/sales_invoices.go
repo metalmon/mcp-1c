@@ -58,10 +58,10 @@ func ReadSalesInvoicesTool() *mcp.Tool {
 			"properties":{
 				"search":{"type":"string","description":"Поиск по номеру или комментарию"},
 				"limit":{"type":"integer","description":"Максимум строк (по умолчанию 50, максимум 500)"},
-				"ref":{"type":"string","description":"Ссылка документа (UUID)"},
-				"number":{"type":"string","description":"Номер документа"},
-				"counterparty_ref":{"type":"string","description":"Фильтр по контрагенту (UUID)"},
-				"organization_ref":{"type":"string","description":"Фильтр по организации (UUID)"}
+				"ref":{"type":"string","description":"Точечное чтение: Документ.<Имя>:<uuid> или плоский uuid"},
+				"number":{"type":"string","description":"Точечное чтение: номер документа"},
+				"counterparty_ref":{"type":"string","description":"Фильтр: Справочник.Контрагенты:<uuid> или плоский uuid"},
+				"organization_ref":{"type":"string","description":"Фильтр: Справочник.Организации:<uuid> или плоский uuid"}
 			}
 		}`),
 	}

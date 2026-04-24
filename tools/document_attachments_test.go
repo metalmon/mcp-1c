@@ -23,7 +23,7 @@ func TestAttachFileToDocumentHandler(t *testing.T) {
 	const resp = `{
 		"success": true,
 		"attachment": {
-			"ref": "attachmentCatalog:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+			"ref": "Справочник.РеализацияТоваровУслугПрисоединенныеФайлы:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
 			"document_ref": "Документ.РеализацияТоваровУслуг:bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
 			"file_name": "Счет_0001_20260420_scan.pdf",
 			"mime_type": "application/pdf",
@@ -81,5 +81,48 @@ func TestAttachFileToDocumentHandler_Validation(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "document_ref is required") {
 		t.Fatalf("expected validation error, got: %v", err)
+	}
+}
+
+func TestAttachFileToDocumentHandler_RequiresPayload(t *testing.T) {
+	handler := NewAttachFileToDocumentHandler(onec.NewClient("http://127.0.0.1:1", "", ""))
+	_, err := handler(context.Background(), &mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{
+			Name:      "attach_file_to_document",
+			Arguments: []byte(`{"document_ref":"Документ.СчетНаОплатуПокупателю:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}`),
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "file_name and content_base64") {
+		t.Fatalf("expected payload validation error, got: %v", err)
+	}
+}
+
+func TestAttachFileToDocumentHandler_StripsWhitespaceInsideBase64(t *testing.T) {
+	const resp = `{"success":true,"attachment":{"ref":"r","document_ref":"d","file_name":"f","mime_type":"","size_bytes":0}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		bodyText := string(body)
+		if strings.Contains(bodyText, `"content_base64":"QUJ\nDRA=="`) {
+			http.Error(w, "whitespace must be stripped from content_base64 before POST", http.StatusBadRequest)
+			return
+		}
+		if !strings.Contains(bodyText, `"content_base64":"QUJDRA=="`) {
+			http.Error(w, "expected compact base64 in JSON", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(resp))
+	}))
+	defer srv.Close()
+
+	handler := NewAttachFileToDocumentHandler(onec.NewClient(srv.URL, "", ""))
+	_, err := handler(context.Background(), &mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{
+			Name: "attach_file_to_document",
+			Arguments: []byte(`{"document_ref":"Документ.РеализацияТоваровУслуг:bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","file_name":"x.pdf","content_base64":"QUJ\nDRA=="}`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

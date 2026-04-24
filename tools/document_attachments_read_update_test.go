@@ -37,7 +37,7 @@ func TestReadDocumentAttachmentsHandler(t *testing.T) {
 	const resp = `{
 		"attachments":[
 			{
-				"ref":"attachmentCatalog:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+				"ref":"Справочник.РеализацияТоваровУслугПрисоединенныеФайлы:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
 				"document_ref":"Документ.РеализацияТоваровУслуг:bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
 				"file_name":"scan.pdf",
 				"description":"УПД",
@@ -74,7 +74,7 @@ func TestReadDocumentAttachmentsHandler(t *testing.T) {
 func TestGetDocumentAttachmentContentHandler(t *testing.T) {
 	const resp = `{
 		"content":{
-			"id":"attachmentCatalog:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+			"id":"Справочник.РеализацияТоваровУслугПрисоединенныеФайлы:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
 			"name":"scan.pdf",
 			"mime_type":"application/pdf",
 			"size_bytes":128,
@@ -96,13 +96,14 @@ func TestGetDocumentAttachmentContentHandler(t *testing.T) {
 
 	handler := NewGetDocumentAttachmentContentHandler(onec.NewClient(srv.URL, "", ""))
 	result, err := handler(context.Background(), &mcp.CallToolRequest{
-		Params: &mcp.CallToolParamsRaw{Name: "get_document_attachment_content", Arguments: []byte(`{"attachment_ref":"attachmentCatalog:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}`)},
+		Params: &mcp.CallToolParamsRaw{Name: "get_document_attachment_content", Arguments: []byte(`{"attachment_ref":"Справочник.РеализацияТоваровУслугПрисоединенныеФайлы:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}`)},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	text := result.Content[0].(*mcp.TextContent).Text
-	if !strings.Contains(text, `"content":"QUJDRA=="`) || !strings.Contains(text, `"contract_version":"1.0"`) {
+	if !strings.Contains(text, `"content":"QUJDRA=="`) || !strings.Contains(text, `"contract_version":"1.0"`) ||
+		!strings.Contains(text, "РеализацияТоваровУслугПрисоединенныеФайлы") {
 		t.Fatalf("unexpected result:\n%s", text)
 	}
 }
@@ -111,7 +112,7 @@ func TestUpdateDocumentAttachmentMetadataHandler(t *testing.T) {
 	const resp = `{
 		"success":true,
 		"attachment":{
-			"ref":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+			"ref":"Справочник.РеализацияТоваровУслугПрисоединенныеФайлы:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
 			"file_name":"renamed.pdf",
 			"description":"Новое описание"
 		}
@@ -135,7 +136,7 @@ func TestUpdateDocumentAttachmentMetadataHandler(t *testing.T) {
 	result, err := handler(context.Background(), &mcp.CallToolRequest{
 		Params: &mcp.CallToolParamsRaw{
 			Name:      "update_document_attachment_metadata",
-			Arguments: []byte(`{"attachment_ref":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","file_name":"renamed.pdf"}`),
+			Arguments: []byte(`{"attachment_ref":"Справочник.РеализацияТоваровУслугПрисоединенныеФайлы:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","file_name":"renamed.pdf"}`),
 		},
 	})
 	if err != nil {
@@ -152,7 +153,7 @@ func TestUpdateDocumentAttachmentMetadataHandler_RequiresField(t *testing.T) {
 	_, err := handler(context.Background(), &mcp.CallToolRequest{
 		Params: &mcp.CallToolParamsRaw{
 			Name:      "update_document_attachment_metadata",
-			Arguments: []byte(`{"attachment_ref":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}`),
+			Arguments: []byte(`{"attachment_ref":"Справочник.РеализацияТоваровУслугПрисоединенныеФайлы:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}`),
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "at least one field is required") {

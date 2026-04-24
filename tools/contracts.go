@@ -38,10 +38,10 @@ func ReadContractsTool() *mcp.Tool {
 		InputSchema: json.RawMessage(`{
 			"type":"object",
 			"properties":{
-				"search":{"type":"string","description":"Поиск по наименованию"},
+				"search":{"type":"string","description":"Подстрочный поиск по наименованию договора (краткое, как в списке) или номеру; у справочника нет полного наименования как у контрагента (регистр не важен; «» в наименовании игнорируются)"},
 				"limit":{"type":"integer","description":"Максимум строк (по умолчанию 50, максимум 500)"},
 				"code":{"type":"string","description":"Код договора для точечного чтения"},
-				"ref":{"type":"string","description":"Ссылка договора (UUID) для точечного чтения"},
+				"ref":{"type":"string","description":"Типизированная ссылка договора (Справочник.ДоговорыКонтрагентов:<uuid>) для точечного чтения"},
 				"number":{"type":"string","description":"Номер договора для точечного чтения"},
 				"counterparty_ref":{"type":"string","description":"Фильтр по ссылке контрагента (UUID)"},
 				"organization_ref":{"type":"string","description":"Фильтр по ссылке организации (UUID)"}

@@ -31,15 +31,15 @@ func ReadNomenclatureTool() *mcp.Tool {
 		Annotations: &mcp.ToolAnnotations{
 			ReadOnlyHint: true,
 		},
-		Description: "Инструмент 1С: получить номенклатуру: список с поиском по наименованию/артикулу " +
+		Description: "Инструмент 1С: получить номенклатуру: список с поиском по краткому и полному наименованию/артикулу " +
 			"или один элемент по code/ref/article.",
 		InputSchema: json.RawMessage(`{
 			"type":"object",
 			"properties":{
-				"search":{"type":"string","description":"Поиск по наименованию или артикулу"},
+				"search":{"type":"string","description":"Подстрочный поиск по краткому и полному наименованию или артикулу (регистр не важен; «» в наименовании игнорируются при сравнении)"},
 				"limit":{"type":"integer","description":"Максимум строк (по умолчанию 50, максимум 500)"},
 				"code":{"type":"string","description":"Код номенклатуры для точечного чтения"},
-				"ref":{"type":"string","description":"Ссылка номенклатуры (строковый UUID) для точечного чтения"},
+				"ref":{"type":"string","description":"Типизированная ссылка номенклатуры (Справочник.Номенклатура:<uuid>) для точечного чтения"},
 				"article":{"type":"string","description":"Артикул номенклатуры для точечного чтения"}
 			}
 		}`),

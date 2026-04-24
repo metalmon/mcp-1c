@@ -5,16 +5,16 @@
 - No legacy UUID-only refs in this contour.
 
 ## Typed Refs
-- Format: `<metadataFullName>:<uuid>`.
-- Attachment format: `attachmentCatalog:<uuid>`.
-- Input refs for tools and HTTP adapter must be typed refs.
+- Format: `<metadataFullName>:<uuid>` (same rule for documents and catalogs).
+- Attachment refs use the catalog’s full metadata name, for example `Справочник.<DocumentName>ПрисоединенныеФайлы:<uuid>`. The exact catalog name comes from `read_document_attachments` / attach responses (`ref` field).
+- Input refs for tools and HTTP adapter must be typed refs. The former `attachmentCatalog:<uuid>` alias is not accepted.
 
 ## Attachment Content Contract
 `get_document_attachment_content` returns:
 
 ```json
 {
-  "id": "attachmentCatalog:<uuid>",
+  "id": "Справочник.<ИмяКаталогаПрисоединенныхФайлов>:<uuid>",
   "name": "file.ext",
   "mime_type": "application/pdf",
   "size_bytes": 12345,

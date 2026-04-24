@@ -122,7 +122,7 @@ type EventLogEntry struct {
 
 // Counterparty represents a 1C counterparty.
 type Counterparty struct {
-	Ref              string `json:"ref"` // UUID string
+	Ref              string `json:"ref"` // typed ref Справочник.Контрагенты:<uuid>
 	Code             string `json:"code"`
 	Name             string `json:"name"`
 	INN              string `json:"inn"`
@@ -455,6 +455,7 @@ type ReadDocumentAttachmentsResult struct {
 }
 
 // GetDocumentAttachmentContentRequest is the request for attachment content.
+// AttachmentRef must be a typed catalog ref: Справочник.<ИмяКаталогаПрисоединенныхФайлов>:<uuid>.
 type GetDocumentAttachmentContentRequest struct {
 	AttachmentRef string `json:"attachment_ref"`
 }
@@ -465,6 +466,7 @@ type GetDocumentAttachmentContentResult struct {
 }
 
 // UpdateDocumentAttachmentMetadataRequest is the request for attachment metadata update.
+// AttachmentRef must be a typed catalog ref (same as get_document_attachment_content).
 type UpdateDocumentAttachmentMetadataRequest struct {
 	AttachmentRef string `json:"attachment_ref"`
 	FileName      string `json:"file_name,omitempty"`

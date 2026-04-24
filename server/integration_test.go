@@ -189,8 +189,8 @@ func mock1CHandler() http.Handler {
 		json.NewEncoder(w).Encode(map[string]any{
 			"success": true,
 			"attachment": map[string]any{
-				"ref":          "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-				"document_ref": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+				"ref":          "Справочник.РеализацияТоваровУслугПрисоединенныеФайлы:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+				"document_ref": "Документ.РеализацияТоваровУслуг:bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
 				"file_name":    "Документ_0001_20260420_scan.pdf",
 				"mime_type":    "application/pdf",
 				"size_bytes":   12,
@@ -206,8 +206,8 @@ func mock1CHandler() http.Handler {
 		json.NewEncoder(w).Encode(map[string]any{
 			"attachments": []map[string]any{
 				{
-					"ref":          "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-					"document_ref": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+					"ref":          "Справочник.РеализацияТоваровУслугПрисоединенныеФайлы:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+					"document_ref": "Документ.РеализацияТоваровУслуг:bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
 					"file_name":    "scan.pdf",
 					"description":  "Скан",
 					"mime_type":    "application/pdf",
@@ -225,13 +225,15 @@ func mock1CHandler() http.Handler {
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		json.NewEncoder(w).Encode(map[string]any{
-			"attachment": map[string]any{
-				"ref":            "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-				"document_ref":   "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
-				"file_name":      "scan.pdf",
-				"mime_type":      "application/pdf",
-				"size_bytes":     12,
-				"content_base64": "QUJDRA==",
+			"content": map[string]any{
+				"id":               "Справочник.РеализацияТоваровУслугПрисоединенныеФайлы:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+				"name":             "scan.pdf",
+				"mime_type":        "application/pdf",
+				"size_bytes":       12,
+				"encoding":         "base64",
+				"content":          "QUJDRA==",
+				"injection":        map[string]any{"mode": "file_reference"},
+				"contract_version": "1.0",
 			},
 		})
 	})
@@ -244,7 +246,7 @@ func mock1CHandler() http.Handler {
 		json.NewEncoder(w).Encode(map[string]any{
 			"success": true,
 			"attachment": map[string]any{
-				"ref":         "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+				"ref":         "Справочник.РеализацияТоваровУслугПрисоединенныеФайлы:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
 				"file_name":   "renamed.pdf",
 				"description": "Новое описание",
 			},
@@ -519,14 +521,14 @@ func TestIntegration_GetDocumentAttachmentContent(t *testing.T) {
 	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: "get_document_attachment_content",
 		Arguments: map[string]any{
-			"attachment_ref": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+			"attachment_ref": "Справочник.РеализацияТоваровУслугПрисоединенныеФайлы:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
 		},
 	})
 	if err != nil {
 		t.Fatalf("CallTool error: %v", err)
 	}
 	text := result.Content[0].(*mcp.TextContent).Text
-	if !strings.Contains(text, "Content Base64: QUJDRA==") {
+	if !strings.Contains(text, "QUJDRA==") || !strings.Contains(text, "contract_version") {
 		t.Fatalf("unexpected response: %s", text)
 	}
 }
@@ -541,7 +543,7 @@ func TestIntegration_UpdateDocumentAttachmentMetadata(t *testing.T) {
 	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: "update_document_attachment_metadata",
 		Arguments: map[string]any{
-			"attachment_ref": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+			"attachment_ref": "Справочник.РеализацияТоваровУслугПрисоединенныеФайлы:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
 			"file_name":      "renamed.pdf",
 		},
 	})
