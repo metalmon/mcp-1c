@@ -398,6 +398,56 @@ type UpdateSalesDocumentResult struct {
 	Document SalesDocument `json:"document"`
 }
 
+// IncomingGoodsItem is a single row of "Поступление товаров и услуг".
+// Nomenclature is identified by an already-resolved typed reference —
+// the OCR-side performs the fuzzy/LLM matching against a cached catalog
+// before calling this endpoint.
+type IncomingGoodsItem struct {
+	NomenclatureRef string `json:"nomenclature_ref"`
+	Quantity        string `json:"quantity,omitempty"`
+	Price           string `json:"price,omitempty"`
+	Amount          string `json:"amount,omitempty"`
+	VATRate         string `json:"vat_rate,omitempty"`
+	VATAmount       string `json:"vat_amount,omitempty"`
+}
+
+// IncomingGoodsDocument represents the created "Поступление товаров и услуг".
+type IncomingGoodsDocument struct {
+	Ref          string `json:"ref"`
+	Number       string `json:"number"`
+	Date         string `json:"date,omitempty"`
+	Organization string `json:"organization,omitempty"`
+	Counterparty string `json:"counterparty,omitempty"`
+	Contract     string `json:"contract,omitempty"`
+	Amount       string `json:"amount,omitempty"`
+	Posted       bool   `json:"posted"`
+	DocNumberIn  string `json:"doc_number_in,omitempty"`
+	DocDateIn    string `json:"doc_date_in,omitempty"`
+}
+
+// CreateIncomingGoodsRequest is the request body for /incoming-goods.
+type CreateIncomingGoodsRequest struct {
+	OrganizationRef     string              `json:"organization_ref"`
+	CounterpartyRef     string              `json:"counterparty_ref"`
+	ContractRef         string              `json:"contract_ref,omitempty"`
+	DocNumberIn         string              `json:"doc_number_in,omitempty"`
+	DocDateIn           string              `json:"doc_date_in,omitempty"`
+	Amount              string              `json:"amount,omitempty"`
+	VATIncluded         *bool               `json:"vat_included,omitempty"`
+	IsUniversalDocument *bool               `json:"is_universal_document,omitempty"`
+	OriginalReceived    *bool               `json:"original_received,omitempty"`
+	Comment             string              `json:"comment,omitempty"`
+	Post                bool                `json:"post"`
+	Items               []IncomingGoodsItem `json:"items"`
+}
+
+// CreateIncomingGoodsResult is the response from /incoming-goods.
+type CreateIncomingGoodsResult struct {
+	Success  bool                  `json:"success"`
+	Existing bool                  `json:"existing"`
+	Document IncomingGoodsDocument `json:"document"`
+}
+
 // DocumentAttachment represents an attached file linked to a 1C document.
 type DocumentAttachment struct {
 	Ref           string `json:"ref"`
