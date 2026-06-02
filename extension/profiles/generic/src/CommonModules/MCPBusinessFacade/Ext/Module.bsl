@@ -4,6 +4,10 @@
 	ВызватьИсключение "generic profile: create_sales_* tools are not implemented";
 КонецФункции
 
+Функция СоздатьПоступление(Параметры) Экспорт
+	ВызватьИсключение "generic profile: create_incoming_goods_document is not implemented";
+КонецФункции
+
 Функция ОбновитьДокументПродаж(Параметры, ТипДокумента) Экспорт
 	ВызватьИсключение "generic profile: update_sales_* tools are not implemented";
 КонецФункции

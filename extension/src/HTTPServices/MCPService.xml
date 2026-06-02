@@ -537,6 +537,35 @@
 					</Method>
 				</ChildObjects>
 			</URLTemplate>
+			<URLTemplate uuid="f07221ca-7bf5-4796-b115-4acc6951838c">
+				<Properties>
+					<Name>Поступление</Name>
+					<Synonym>
+						<v8:item>
+							<v8:lang>ru</v8:lang>
+							<v8:content>Поступление</v8:content>
+						</v8:item>
+					</Synonym>
+					<Comment/>
+					<Template>/incoming-goods</Template>
+				</Properties>
+				<ChildObjects>
+					<Method uuid="ae7a5d2f-a9aa-44a8-bc05-79b8e96dcf05">
+						<Properties>
+							<Name>POST</Name>
+							<Synonym>
+								<v8:item>
+									<v8:lang>ru</v8:lang>
+									<v8:content>POST</v8:content>
+								</v8:item>
+							</Synonym>
+							<Comment/>
+							<HTTPMethod>POST</HTTPMethod>
+							<Handler>ПоступлениеPOST</Handler>
+						</Properties>
+					</Method>
+				</ChildObjects>
+			</URLTemplate>
 			<URLTemplate uuid="c0d4fd15-7ab9-4a74-8f9f-c4128ec75bce">
 				<Properties>
 					<Name>Реализации</Name>
