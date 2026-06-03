@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 )
 
@@ -33,7 +35,20 @@ func NewClient(baseURL, user, password string) *Client {
 
 // Get performs a GET request to a 1C endpoint and decodes the JSON response.
 func (c *Client) Get(ctx context.Context, endpoint string, result any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+endpoint, nil)
+	return c.GetQuery(ctx, endpoint, nil, result)
+}
+
+// GetQuery performs a GET request with query parameters.
+func (c *Client) GetQuery(ctx context.Context, endpoint string, query url.Values, result any) error {
+	target := c.BaseURL + endpoint
+	if len(query) > 0 {
+		sep := "?"
+		if strings.Contains(endpoint, "?") {
+			sep = "&"
+		}
+		target += sep + query.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
 	}

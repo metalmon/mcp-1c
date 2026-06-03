@@ -68,7 +68,7 @@ func NewReadDocumentAttachmentsHandler(client *onec.Client) mcp.ToolHandler {
 			Search:      strings.TrimSpace(input.Search),
 		}
 		var result onec.ReadDocumentAttachmentsResult
-		if err := client.Post(ctx, "/document-attachments", body, &result); err != nil {
+		if err := client.GetQuery(ctx, "/document-attachments", onec.DocumentAttachmentsQuery(body), &result); err != nil {
 			return nil, fmt.Errorf("reading document attachments from 1C: %w", err)
 		}
 		return textResult(formatReadDocumentAttachmentsResult(&result)), nil
@@ -106,7 +106,7 @@ func NewGetDocumentAttachmentContentHandler(client *onec.Client) mcp.ToolHandler
 			AttachmentRef: strings.TrimSpace(input.AttachmentRef),
 		}
 		var result onec.GetDocumentAttachmentContentResult
-		if err := client.Post(ctx, "/document-attachment-content", body, &result); err != nil {
+		if err := client.GetQuery(ctx, "/document-attachment-content", onec.DocumentAttachmentContentQuery(body), &result); err != nil {
 			return nil, fmt.Errorf("reading document attachment content from 1C: %w", err)
 		}
 		return textResult(formatGetDocumentAttachmentContentResult(&result)), nil

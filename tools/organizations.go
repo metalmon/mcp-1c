@@ -72,7 +72,7 @@ func NewReadOrganizationsHandler(client *onec.Client) mcp.ToolHandler {
 		}
 
 		var result onec.ReadOrganizationsResult
-		if err := client.Post(ctx, "/organizations", body, &result); err != nil {
+		if err := client.GetQuery(ctx, "/organizations", onec.OrganizationsQuery(body), &result); err != nil {
 			return nil, fmt.Errorf("reading organizations from 1C: %w", err)
 		}
 		return textResult(formatOrganizationsReadResult(&result)), nil

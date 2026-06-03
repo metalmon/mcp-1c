@@ -328,8 +328,8 @@
 								</v8:item>
 							</Synonym>
 							<Comment/>
-							<HTTPMethod>POST</HTTPMethod>
-							<Handler>КонтрагентыPOST</Handler>
+							<HTTPMethod>GET</HTTPMethod>
+							<Handler>КонтрагентыGET</Handler>
 						</Properties>
 					</Method>
 				</ChildObjects>
@@ -386,8 +386,8 @@
 								</v8:item>
 							</Synonym>
 							<Comment/>
-							<HTTPMethod>POST</HTTPMethod>
-							<Handler>НоменклатурыPOST</Handler>
+							<HTTPMethod>GET</HTTPMethod>
+							<Handler>НоменклатурыGET</Handler>
 						</Properties>
 					</Method>
 				</ChildObjects>
@@ -415,8 +415,8 @@
 								</v8:item>
 							</Synonym>
 							<Comment/>
-							<HTTPMethod>POST</HTTPMethod>
-							<Handler>ОрганизацииPOST</Handler>
+							<HTTPMethod>GET</HTTPMethod>
+							<Handler>ОрганизацииGET</Handler>
 						</Properties>
 					</Method>
 				</ChildObjects>
@@ -444,8 +444,8 @@
 								</v8:item>
 							</Synonym>
 							<Comment/>
-							<HTTPMethod>POST</HTTPMethod>
-							<Handler>ДоговорыPOST</Handler>
+							<HTTPMethod>GET</HTTPMethod>
+							<Handler>ДоговорыGET</Handler>
 						</Properties>
 					</Method>
 				</ChildObjects>
@@ -502,8 +502,8 @@
 								</v8:item>
 							</Synonym>
 							<Comment/>
-							<HTTPMethod>POST</HTTPMethod>
-							<Handler>СчетаПокупателюPOST</Handler>
+							<HTTPMethod>GET</HTTPMethod>
+							<Handler>СчетаПокупателюGET</Handler>
 						</Properties>
 					</Method>
 				</ChildObjects>
@@ -589,8 +589,8 @@
 								</v8:item>
 							</Synonym>
 							<Comment/>
-							<HTTPMethod>POST</HTTPMethod>
-							<Handler>РеализацииPOST</Handler>
+							<HTTPMethod>GET</HTTPMethod>
+							<Handler>РеализацииGET</Handler>
 						</Properties>
 					</Method>
 				</ChildObjects>
@@ -647,8 +647,8 @@
 								</v8:item>
 							</Synonym>
 							<Comment/>
-							<HTTPMethod>POST</HTTPMethod>
-							<Handler>ВложенияДокументаPOST</Handler>
+							<HTTPMethod>GET</HTTPMethod>
+							<Handler>ВложенияДокументаGET</Handler>
 						</Properties>
 					</Method>
 				</ChildObjects>
@@ -676,8 +676,66 @@
 								</v8:item>
 							</Synonym>
 							<Comment/>
+							<HTTPMethod>GET</HTTPMethod>
+							<Handler>СодержимоеВложенияДокументаGET</Handler>
+						</Properties>
+					</Method>
+				</ChildObjects>
+			</URLTemplate>
+			<URLTemplate uuid="a1b2c3d4-e5f6-4789-a012-3456789abcde">
+				<Properties>
+					<Name>НедавняяНоменклатураПоставщика</Name>
+					<Synonym>
+						<v8:item>
+							<v8:lang>ru</v8:lang>
+							<v8:content>НедавняяНоменклатураПоставщика</v8:content>
+						</v8:item>
+					</Synonym>
+					<Comment/>
+					<Template>/nomenclature/recent_for_counterparty</Template>
+				</Properties>
+				<ChildObjects>
+					<Method uuid="b2c3d4e5-f6a7-4890-b123-456789abcdef">
+						<Properties>
+							<Name>GET</Name>
+							<Synonym>
+								<v8:item>
+									<v8:lang>ru</v8:lang>
+									<v8:content>GET</v8:content>
+								</v8:item>
+							</Synonym>
+							<Comment/>
+							<HTTPMethod>GET</HTTPMethod>
+							<Handler>НедавняяНоменклатураПоставщикаGET</Handler>
+						</Properties>
+					</Method>
+				</ChildObjects>
+			</URLTemplate>
+			<URLTemplate uuid="c3d4e5f6-a7b8-4901-c234-567890abcdef">
+				<Properties>
+					<Name>ПроверкаСсылок</Name>
+					<Synonym>
+						<v8:item>
+							<v8:lang>ru</v8:lang>
+							<v8:content>ПроверкаСсылок</v8:content>
+						</v8:item>
+					</Synonym>
+					<Comment/>
+					<Template>/refs/validate</Template>
+				</Properties>
+				<ChildObjects>
+					<Method uuid="d4e5f6a7-b8c9-4012-d345-67890abcdef0">
+						<Properties>
+							<Name>POST</Name>
+							<Synonym>
+								<v8:item>
+									<v8:lang>ru</v8:lang>
+									<v8:content>POST</v8:content>
+								</v8:item>
+							</Synonym>
+							<Comment/>
 							<HTTPMethod>POST</HTTPMethod>
-							<Handler>СодержимоеВложенияДокументаPOST</Handler>
+							<Handler>ПроверкаСсылокPOST</Handler>
 						</Properties>
 					</Method>
 				</ChildObjects>

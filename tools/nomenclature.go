@@ -25,7 +25,9 @@ func CreateNomenclatureTool() *mcp.Tool {
 		Name:  "create_nomenclature",
 		Title: "Создание номенклатуры",
 		Description: "Инструмент 1С: создать элемент номенклатуры. Обязательно: name. " +
-			"Опционально: full_name, article, nomenclature_type, unit, is_service.",
+			"Опционально: full_name, article, nomenclature_type, unit, is_service. " +
+			"Идемпотентно по article (если передан), иначе по точному name — " +
+			"повторный вызов возвращает existing=true.",
 		InputSchema: json.RawMessage(`{
 			"type":"object",
 			"properties":{
@@ -75,7 +77,11 @@ func NewCreateNomenclatureHandler(client *onec.Client) mcp.ToolHandler {
 func formatCreateNomenclatureResult(r *onec.CreateNomenclatureResult) string {
 	n := r.Nomenclature
 	var b strings.Builder
-	b.WriteString("# Номенклатура создана\n\n")
+	if r.Existing {
+		b.WriteString("# Номенклатура уже существовала (existing=true)\n\n")
+	} else {
+		b.WriteString("# Номенклатура создана\n\n")
+	}
 	fmt.Fprintf(&b, "- Ref: %s\n", n.Ref)
 	fmt.Fprintf(&b, "- Code: %s\n", n.Code)
 	fmt.Fprintf(&b, "- Name: %s\n", n.Name)

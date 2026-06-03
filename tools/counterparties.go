@@ -79,7 +79,7 @@ func NewReadCounterpartiesHandler(client *onec.Client) mcp.ToolHandler {
 			AfterCode: strings.TrimSpace(input.AfterCode),
 		}
 		var result onec.ReadCounterpartiesResult
-		if err := client.Post(ctx, "/counterparties", body, &result); err != nil {
+		if err := client.GetQuery(ctx, "/counterparties", onec.CounterpartiesQuery(body), &result); err != nil {
 			return nil, fmt.Errorf("reading counterparties from 1C: %w", err)
 		}
 
@@ -93,7 +93,8 @@ func CreateCounterpartyTool() *mcp.Tool {
 		Name:  "create_counterparty",
 		Title: "Создание контрагента",
 		Description: "Инструмент 1С: создать контрагента с обязательными полями: Наименование, ИНН, КПП, Вид контрагента. " +
-			"counterparty_type: legal|individual.",
+			"counterparty_type: legal|individual. " +
+			"Идемпотентно по (inn, kpp) — повторный вызов возвращает existing=true.",
 		InputSchema: json.RawMessage(`{
 			"type":"object",
 			"properties":{
@@ -164,7 +165,11 @@ func formatCounterpartiesReadResult(r *onec.ReadCounterpartiesResult) string {
 func formatCreateCounterpartyResult(r *onec.CreateCounterpartyResult) string {
 	cp := r.Counterparty
 	var b strings.Builder
-	b.WriteString("# Контрагент создан\n\n")
+	if r.Existing {
+		b.WriteString("# Контрагент уже существовал (existing=true)\n\n")
+	} else {
+		b.WriteString("# Контрагент создан\n\n")
+	}
 	fmt.Fprintf(&b, "- Ref: %s\n", cp.Ref)
 	fmt.Fprintf(&b, "- Code: %s\n", cp.Code)
 	fmt.Fprintf(&b, "- Name: %s\n", cp.Name)

@@ -24,7 +24,7 @@ import (
 //	go build -ldflags "-X main.version=0.4.2-beta" ./cmd/mcp-1c
 var version = "dev"
 
-const expectedExtensionVersion = "0.4.0"
+const expectedExtensionVersion = "0.5.0"
 
 func main() {
 	log.SetOutput(os.Stderr)

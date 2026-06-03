@@ -87,7 +87,7 @@ func NewReadSalesDocumentsHandler(client *onec.Client) mcp.ToolHandler {
 			OrganizationRef: strings.TrimSpace(input.OrganizationRef),
 		}
 		var result onec.ReadSalesDocumentsResult
-		if err := client.Post(ctx, "/sales-documents", body, &result); err != nil {
+		if err := client.GetQuery(ctx, "/sales-documents", onec.ReadSalesDocumentsQuery(body), &result); err != nil {
 			return nil, fmt.Errorf("reading sales documents from 1C: %w", err)
 		}
 		return textResult(formatSalesDocumentsReadResult(&result)), nil

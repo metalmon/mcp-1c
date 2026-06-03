@@ -66,9 +66,50 @@ func TestReadCounterpartiesHandler(t *testing.T) {
 	}
 }
 
+func TestCreateCounterpartyHandler_Existing(t *testing.T) {
+	const resp = `{
+		"success": true,
+		"existing": true,
+		"counterparty": {
+			"ref":"11111111-1111-1111-1111-111111111111",
+			"code":"0001",
+			"name":"ООО Ромашка",
+			"inn":"7701000001",
+			"kpp":"770101001",
+			"counterparty_type":"ЮридическоеЛицо"
+		}
+	}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/counterparty" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(resp))
+	}))
+	defer srv.Close()
+
+	handler := NewCreateCounterpartyHandler(onec.NewClient(srv.URL, "", ""))
+	result, err := handler(context.Background(), &mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{
+			Name:      "create_counterparty",
+			Arguments: []byte(`{"name":"ООО Ромашка","inn":"7701000001","kpp":"770101001","counterparty_type":"legal"}`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	text := result.Content[0].(*mcp.TextContent).Text
+	if !strings.Contains(text, "existing=true") {
+		t.Fatalf("expected existing message, got:\n%s", text)
+	}
+}
+
 func TestCreateCounterpartyHandler(t *testing.T) {
 	const resp = `{
 		"success": true,
+		"existing": false,
 		"counterparty": {
 			"ref":"11111111-1111-1111-1111-111111111111",
 			"code":"0001",
@@ -116,6 +157,7 @@ func TestCounterpartyRoundTripByRef(t *testing.T) {
 		case "/counterparty":
 			_, _ = w.Write([]byte(`{
 				"success": true,
+				"existing": false,
 				"counterparty": {
 					"ref":"` + ref + `",
 					"code":"0002",

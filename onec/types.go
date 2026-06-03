@@ -160,6 +160,7 @@ type CreateCounterpartyRequest struct {
 // CreateCounterpartyResult is the response from the counterparty create endpoint.
 type CreateCounterpartyResult struct {
 	Success      bool         `json:"success"`
+	Existing     bool         `json:"existing"`
 	Counterparty Counterparty `json:"counterparty"`
 }
 
@@ -188,6 +189,7 @@ type CreateNomenclatureRequest struct {
 // CreateNomenclatureResult is the response from nomenclature create endpoint.
 type CreateNomenclatureResult struct {
 	Success      bool         `json:"success"`
+	Existing     bool         `json:"existing"`
 	Nomenclature Nomenclature `json:"nomenclature"`
 }
 

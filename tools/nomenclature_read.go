@@ -69,7 +69,7 @@ func NewReadNomenclatureHandler(client *onec.Client) mcp.ToolHandler {
 		}
 
 		var result onec.ReadNomenclatureResult
-		if err := client.Post(ctx, "/nomenclatures", body, &result); err != nil {
+		if err := client.GetQuery(ctx, "/nomenclatures", onec.NomenclatureQuery(body), &result); err != nil {
 			return nil, fmt.Errorf("reading nomenclature from 1C: %w", err)
 		}
 

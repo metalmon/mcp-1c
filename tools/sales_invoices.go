@@ -85,7 +85,11 @@ func NewReadSalesInvoicesHandler(client *onec.Client) mcp.ToolHandler {
 			OrganizationRef: strings.TrimSpace(input.OrganizationRef),
 		}
 		var result onec.ReadSalesInvoicesResult
-		if err := client.Post(ctx, "/sales-invoices", body, &result); err != nil {
+		q := onec.ReadSalesDocumentsQuery(onec.ReadSalesDocumentsRequest{
+			Search: body.Search, Limit: body.Limit, Ref: body.Ref, Number: body.Number,
+			CounterpartyRef: body.CounterpartyRef, OrganizationRef: body.OrganizationRef,
+		})
+		if err := client.GetQuery(ctx, "/sales-invoices", q, &result); err != nil {
 			return nil, fmt.Errorf("reading sales invoices from 1C: %w", err)
 		}
 		return textResult(formatSalesInvoicesReadResult(&result)), nil

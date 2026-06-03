@@ -72,7 +72,7 @@ func NewReadContractsHandler(client *onec.Client) mcp.ToolHandler {
 		}
 
 		var result onec.ReadContractsResult
-		if err := client.Post(ctx, "/contracts", body, &result); err != nil {
+		if err := client.GetQuery(ctx, "/contracts", onec.ContractsQuery(body), &result); err != nil {
 			return nil, fmt.Errorf("reading contracts from 1C: %w", err)
 		}
 		return textResult(formatContractsReadResult(&result)), nil
