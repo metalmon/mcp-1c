@@ -16,11 +16,12 @@ const (
 )
 
 type readNomenclatureInput struct {
-	Search  string `json:"search,omitempty"`
-	Limit   int    `json:"limit,omitempty"`
-	Code    string `json:"code,omitempty"`
-	Ref     string `json:"ref,omitempty"`
-	Article string `json:"article,omitempty"`
+	Search    string `json:"search,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+	Code      string `json:"code,omitempty"`
+	Ref       string `json:"ref,omitempty"`
+	Article   string `json:"article,omitempty"`
+	AfterCode string `json:"after_code,omitempty"`
 }
 
 // ReadNomenclatureTool returns the MCP tool definition for read_nomenclature.
@@ -40,7 +41,8 @@ func ReadNomenclatureTool() *mcp.Tool {
 				"limit":{"type":"integer","description":"Максимум строк (по умолчанию 50, максимум 500)"},
 				"code":{"type":"string","description":"Код номенклатуры для точечного чтения"},
 				"ref":{"type":"string","description":"Типизированная ссылка номенклатуры (Справочник.Номенклатура:<uuid>) для точечного чтения"},
-				"article":{"type":"string","description":"Артикул номенклатуры для точечного чтения"}
+				"article":{"type":"string","description":"Артикул номенклатуры для точечного чтения"},
+				"after_code":{"type":"string","description":"Курсор постраничного обхода: код последней позиции предыдущей страницы (next_cursor). Для следующей страницы повторите запрос с тем же limit и этим значением."}
 			}
 		}`),
 	}
@@ -58,11 +60,12 @@ func NewReadNomenclatureHandler(client *onec.Client) mcp.ToolHandler {
 
 		limit := clampLimit(input.Limit, defaultNomenclatureLimit, maxNomenclatureLimit)
 		body := onec.ReadNomenclatureRequest{
-			Search:  strings.TrimSpace(input.Search),
-			Limit:   limit,
-			Code:    strings.TrimSpace(input.Code),
-			Ref:     strings.TrimSpace(input.Ref),
-			Article: strings.TrimSpace(input.Article),
+			Search:    strings.TrimSpace(input.Search),
+			Limit:     limit,
+			Code:      strings.TrimSpace(input.Code),
+			Ref:       strings.TrimSpace(input.Ref),
+			Article:   strings.TrimSpace(input.Article),
+			AfterCode: strings.TrimSpace(input.AfterCode),
 		}
 
 		var result onec.ReadNomenclatureResult
@@ -97,7 +100,9 @@ func formatNomenclatureReadResult(r *onec.ReadNomenclatureResult) string {
 			item.IsService,
 		)
 	}
-	if r.Truncated {
+	if r.Truncated && r.NextCursor != "" {
+		fmt.Fprintf(&b, "\n> Показаны не все записи. Следующая страница: after_code=%q (с тем же limit).\n", r.NextCursor)
+	} else if r.Truncated {
 		b.WriteString("\n> Показаны не все записи. Увеличьте limit.\n")
 	}
 	return b.String()

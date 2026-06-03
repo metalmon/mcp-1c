@@ -16,12 +16,13 @@ const (
 )
 
 type readOrganizationsInput struct {
-	Search string `json:"search,omitempty"`
-	Limit  int    `json:"limit,omitempty"`
-	Code   string `json:"code,omitempty"`
-	Ref    string `json:"ref,omitempty"`
-	INN    string `json:"inn,omitempty"`
-	KPP    string `json:"kpp,omitempty"`
+	Search    string `json:"search,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+	Code      string `json:"code,omitempty"`
+	Ref       string `json:"ref,omitempty"`
+	INN       string `json:"inn,omitempty"`
+	KPP       string `json:"kpp,omitempty"`
+	AfterCode string `json:"after_code,omitempty"`
 }
 
 // ReadOrganizationsTool returns the MCP tool definition for read_organizations.
@@ -42,7 +43,8 @@ func ReadOrganizationsTool() *mcp.Tool {
 				"code":{"type":"string","description":"Код организации для точечного чтения"},
 				"ref":{"type":"string","description":"Типизированная ссылка организации (Справочник.Организации:<uuid>) для точечного чтения"},
 				"inn":{"type":"string","description":"ИНН для точечного чтения в паре с kpp (точное совпадение; подстрочный поиск по номеру — через search)"},
-				"kpp":{"type":"string","description":"КПП для точечного чтения в паре с inn (точное совпадение)"}
+				"kpp":{"type":"string","description":"КПП для точечного чтения в паре с inn (точное совпадение)"},
+				"after_code":{"type":"string","description":"Курсор постраничного обхода: код последней организации предыдущей страницы (next_cursor). Для следующей страницы повторите запрос с тем же limit и этим значением."}
 			}
 		}`),
 	}
@@ -60,12 +62,13 @@ func NewReadOrganizationsHandler(client *onec.Client) mcp.ToolHandler {
 
 		limit := clampLimit(input.Limit, defaultOrganizationsLimit, maxOrganizationsLimit)
 		body := onec.ReadOrganizationsRequest{
-			Search: strings.TrimSpace(input.Search),
-			Limit:  limit,
-			Code:   strings.TrimSpace(input.Code),
-			Ref:    strings.TrimSpace(input.Ref),
-			INN:    strings.TrimSpace(input.INN),
-			KPP:    strings.TrimSpace(input.KPP),
+			Search:    strings.TrimSpace(input.Search),
+			Limit:     limit,
+			Code:      strings.TrimSpace(input.Code),
+			Ref:       strings.TrimSpace(input.Ref),
+			INN:       strings.TrimSpace(input.INN),
+			KPP:       strings.TrimSpace(input.KPP),
+			AfterCode: strings.TrimSpace(input.AfterCode),
 		}
 
 		var result onec.ReadOrganizationsResult
@@ -90,7 +93,9 @@ func formatOrganizationsReadResult(r *onec.ReadOrganizationsResult) string {
 		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s |\n",
 			org.Ref, org.Code, org.Name, org.INN, org.KPP)
 	}
-	if r.Truncated {
+	if r.Truncated && r.NextCursor != "" {
+		fmt.Fprintf(&b, "\n> Показаны не все записи. Следующая страница: after_code=%q (с тем же limit).\n", r.NextCursor)
+	} else if r.Truncated {
 		b.WriteString("\n> Показаны не все записи. Увеличьте limit.\n")
 	}
 	return b.String()

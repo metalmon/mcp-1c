@@ -132,12 +132,13 @@ type Counterparty struct {
 
 // ReadCounterpartiesRequest is the request body for counterparties read endpoint.
 type ReadCounterpartiesRequest struct {
-	Search string `json:"search,omitempty"`
-	Limit  int    `json:"limit,omitempty"`
-	Code   string `json:"code,omitempty"`
-	Ref    string `json:"ref,omitempty"`
-	INN    string `json:"inn,omitempty"`
-	KPP    string `json:"kpp,omitempty"`
+	Search    string `json:"search,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+	Code      string `json:"code,omitempty"`
+	Ref       string `json:"ref,omitempty"`
+	INN       string `json:"inn,omitempty"`
+	KPP       string `json:"kpp,omitempty"`
+	AfterCode string `json:"after_code,omitempty"`
 }
 
 // ReadCounterpartiesResult is the response from counterparties read endpoint.
@@ -145,6 +146,7 @@ type ReadCounterpartiesResult struct {
 	Counterparties []Counterparty `json:"counterparties"`
 	Total          int            `json:"total"`
 	Truncated      bool           `json:"truncated"`
+	NextCursor     string         `json:"next_cursor,omitempty"`
 }
 
 // CreateCounterpartyRequest is the request body for creating a counterparty.
@@ -191,11 +193,12 @@ type CreateNomenclatureResult struct {
 
 // ReadNomenclatureRequest is the request body for nomenclature read endpoint.
 type ReadNomenclatureRequest struct {
-	Search  string `json:"search,omitempty"`
-	Limit   int    `json:"limit,omitempty"`
-	Code    string `json:"code,omitempty"`
-	Ref     string `json:"ref,omitempty"`
-	Article string `json:"article,omitempty"`
+	Search    string `json:"search,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+	Code      string `json:"code,omitempty"`
+	Ref       string `json:"ref,omitempty"`
+	Article   string `json:"article,omitempty"`
+	AfterCode string `json:"after_code,omitempty"`
 }
 
 // ReadNomenclatureResult is the response from nomenclature read endpoint.
@@ -203,6 +206,7 @@ type ReadNomenclatureResult struct {
 	Nomenclature []Nomenclature `json:"nomenclature"`
 	Total        int            `json:"total"`
 	Truncated    bool           `json:"truncated"`
+	NextCursor   string         `json:"next_cursor,omitempty"`
 }
 
 // Organization represents a 1C organization.
@@ -216,12 +220,13 @@ type Organization struct {
 
 // ReadOrganizationsRequest is the request body for organizations read endpoint.
 type ReadOrganizationsRequest struct {
-	Search string `json:"search,omitempty"`
-	Limit  int    `json:"limit,omitempty"`
-	Code   string `json:"code,omitempty"`
-	Ref    string `json:"ref,omitempty"`
-	INN    string `json:"inn,omitempty"`
-	KPP    string `json:"kpp,omitempty"`
+	Search    string `json:"search,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+	Code      string `json:"code,omitempty"`
+	Ref       string `json:"ref,omitempty"`
+	INN       string `json:"inn,omitempty"`
+	KPP       string `json:"kpp,omitempty"`
+	AfterCode string `json:"after_code,omitempty"`
 }
 
 // ReadOrganizationsResult is the response from organizations read endpoint.
@@ -229,6 +234,7 @@ type ReadOrganizationsResult struct {
 	Organizations []Organization `json:"organizations"`
 	Total         int            `json:"total"`
 	Truncated     bool           `json:"truncated"`
+	NextCursor    string         `json:"next_cursor,omitempty"`
 }
 
 // Contract represents a 1C counterparty contract.
