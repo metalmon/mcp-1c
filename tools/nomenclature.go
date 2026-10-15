@@ -45,10 +45,10 @@ func CreateNomenclatureTool() *mcp.Tool {
 
 // NewCreateNomenclatureHandler returns a ToolHandler that creates nomenclature.
 func NewCreateNomenclatureHandler(client *onec.Client) mcp.ToolHandler {
-	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return WithToolErrors(headingNomenclatureCreate, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var input createNomenclatureInput
 		if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
-			return nil, fmt.Errorf("parsing input: %w", err)
+			return nil, InvalidParams(fmt.Errorf("parsing input: %w", err))
 		}
 		if strings.TrimSpace(input.Name) == "" {
 			return nil, fmt.Errorf("name is required")
@@ -71,7 +71,7 @@ func NewCreateNomenclatureHandler(client *onec.Client) mcp.ToolHandler {
 		}
 
 		return textResult(formatCreateNomenclatureResult(&result)), nil
-	}
+	})
 }
 
 func formatCreateNomenclatureResult(r *onec.CreateNomenclatureResult) string {

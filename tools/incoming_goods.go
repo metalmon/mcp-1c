@@ -15,17 +15,17 @@ import (
 // is_universal_document / vat_included so the BSL side can apply its
 // own defaults (true) when the AI omits them.
 type createIncomingGoodsInput struct {
-	OrganizationRef     string              `json:"organization_ref"`
-	CounterpartyRef     string              `json:"counterparty_ref"`
-	ContractRef         string              `json:"contract_ref,omitempty"`
-	DocNumberIn         string              `json:"doc_number_in,omitempty"`
-	DocDateIn           string              `json:"doc_date_in,omitempty"`
-	Amount              string              `json:"amount,omitempty"`
-	VATIncluded         *bool               `json:"vat_included,omitempty"`
-	IsUniversalDocument *bool               `json:"is_universal_document,omitempty"`
-	OriginalReceived    *bool               `json:"original_received,omitempty"`
-	Comment             string              `json:"comment,omitempty"`
-	Post                bool                `json:"post"`
+	OrganizationRef     string                   `json:"organization_ref"`
+	CounterpartyRef     string                   `json:"counterparty_ref"`
+	ContractRef         string                   `json:"contract_ref,omitempty"`
+	DocNumberIn         string                   `json:"doc_number_in,omitempty"`
+	DocDateIn           string                   `json:"doc_date_in,omitempty"`
+	Amount              string                   `json:"amount,omitempty"`
+	VATIncluded         *bool                    `json:"vat_included,omitempty"`
+	IsUniversalDocument *bool                    `json:"is_universal_document,omitempty"`
+	OriginalReceived    *bool                    `json:"original_received,omitempty"`
+	Comment             string                   `json:"comment,omitempty"`
+	Post                bool                     `json:"post"`
 	Items               []onec.IncomingGoodsItem `json:"items"`
 }
 
@@ -80,10 +80,10 @@ func CreateIncomingGoodsDocumentTool() *mcp.Tool {
 }
 
 func NewCreateIncomingGoodsDocumentHandler(client *onec.Client) mcp.ToolHandler {
-	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return WithToolErrors(headingIncomingGoodsCreate, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var input createIncomingGoodsInput
 		if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
-			return nil, fmt.Errorf("parsing input: %w", err)
+			return nil, InvalidParams(fmt.Errorf("parsing input: %w", err))
 		}
 		if strings.TrimSpace(input.OrganizationRef) == "" || strings.TrimSpace(input.CounterpartyRef) == "" {
 			return nil, fmt.Errorf("organization_ref and counterparty_ref are required")
@@ -113,7 +113,7 @@ func NewCreateIncomingGoodsDocumentHandler(client *onec.Client) mcp.ToolHandler 
 			return nil, fmt.Errorf("1C returned unsuccessful create result")
 		}
 		return textResult(formatCreateIncomingGoodsResult(&result)), nil
-	}
+	})
 }
 
 func formatCreateIncomingGoodsResult(r *onec.CreateIncomingGoodsResult) string {

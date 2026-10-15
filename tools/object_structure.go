@@ -3,7 +3,9 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/feenlace/mcp-1c/onec"
@@ -15,10 +17,10 @@ func ObjectStructureTool() *mcp.Tool {
 	return &mcp.Tool{
 		Name:  "get_object_structure",
 		Title: "Реквизиты и структура объекта",
-		Description: "Получить реквизиты, табличные части, измерения, ресурсы и типы полей объекта метаданных 1С. " +
-			"Покажет из чего состоит справочник, документ, регистр: какие поля, колонки, свойства. " +
-			"Используй когда спрашивают про реквизиты, состав или структуру конкретного объекта (например «какие реквизиты у справочника Валюты»). " +
-			"Результат содержит точные имена реквизитов и табличных частей для запросов и кода. " +
+		Description: "Получить реквизиты, табличные части, измерения, ресурсы, значения перечисления и типы полей объекта метаданных 1С. " +
+			"Покажет из чего состоит справочник, документ, регистр, перечисление: какие поля, колонки, свойства, значения. " +
+			"Используй когда спрашивают про реквизиты, состав или структуру конкретного объекта (например «какие реквизиты у справочника Валюты» или «какие значения у перечисления СтатусыЗаказов»). " +
+			"Результат содержит точные имена реквизитов, табличных частей и значений перечислений для запросов и кода. " +
 			"Вызывай перед написанием запросов или кода, работающего с объектом.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 		InputSchema: json.RawMessage(`{
@@ -26,7 +28,7 @@ func ObjectStructureTool() *mcp.Tool {
 			"properties": {
 				"object_type": {
 					"type": "string",
-					"description": "Тип объекта метаданных: Document, Catalog, InformationRegister, AccumulationRegister, AccountingRegister"
+					"description": "Тип объекта метаданных: Catalog, Document, Enum, InformationRegister, AccumulationRegister, AccountingRegister, CalculationRegister, ChartOfAccounts, ChartOfCharacteristicTypes, ChartOfCalculationTypes, ExchangePlan, BusinessProcess, Task, DataProcessor, Report, DefinedType, Subsystem. Для Enum дополнительно возвращается поле values со списком значений перечисления. Для DefinedType возвращается поле types с составом типов. Для Subsystem возвращаются поля content (состав подсистемы) и subsystems (дерево вложенных подсистем). Соответствие категориям из get_metadata_tree (мн. число рус. -> ед. число англ.): Справочники->Catalog, Документы->Document, Перечисления->Enum, Обработки->DataProcessor, Отчеты->Report, РегистрыСведений->InformationRegister, РегистрыНакопления->AccumulationRegister, РегистрыБухгалтерии->AccountingRegister, РегистрыРасчета->CalculationRegister, ПланыСчетов->ChartOfAccounts, ПланыВидовХарактеристик->ChartOfCharacteristicTypes, ПланыВидовРасчета->ChartOfCalculationTypes, ПланыОбмена->ExchangePlan, БизнесПроцессы->BusinessProcess, Задачи->Task, ОпределяемыеТипы->DefinedType, Подсистемы->Subsystem."
 				},
 				"object_name": {
 					"type": "string",
@@ -38,15 +40,50 @@ func ObjectStructureTool() *mcp.Tool {
 	}
 }
 
-// NewObjectStructureHandler returns a ToolHandler that fetches object structure from 1C.
+// NewObjectStructureHandler returns a ToolHandler that fetches object structure
+// from the live 1C extension. It is exactly the live-only case of
+// NewObjectStructureHandlerWithSource: NewObjectStructureHandler(client) ==
+// NewObjectStructureHandlerWithSource(client, nil).
 func NewObjectStructureHandler(client *onec.Client) mcp.ToolHandler {
-	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return NewObjectStructureHandlerWithSource(client, nil)
+}
+
+// NewObjectStructureHandlerWithSource returns a ToolHandler that can serve some
+// object types from an offline source and the rest from the live 1C extension.
+//
+// When sub is non-nil it is consulted first with the requested (objectType,
+// objectName): if it reports handled==true, its result is used verbatim (offline
+// path, no HTTP; a source error is surfaced verbatim), which lets a single type
+// (e.g. Subsystem) be served from an offline dump; if it reports handled==false,
+// the handler falls through to the live request. When sub is nil, every type is
+// fetched over HTTP with client.Get(ctx, "/object/<type>/<name>", ...),
+// byte-for-byte identical to the legacy live path.
+func NewObjectStructureHandlerWithSource(client *onec.Client, sub onec.SubsystemStructFunc) mcp.ToolHandler {
+	return WithToolErrors(headingObject, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var input objectInput
 		if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
-			return nil, fmt.Errorf("parsing input: %w", err)
+			return nil, InvalidParams(argumentDecodeError(err))
 		}
 		if input.ObjectType == "" || input.ObjectName == "" {
 			return nil, fmt.Errorf("object_type and object_name are required")
+		}
+
+		if sub != nil {
+			obj, handled, err := sub(ctx, input.ObjectType, input.ObjectName)
+			if handled {
+				// A RECOVERED PANIC IS A FAULT INSIDE THIS SERVER, not something
+				// the caller can act on, and it leaves by the same return as an
+				// ordinary source failure. Marking the whole branch would ship a
+				// readable dump error as an unreadable internal one; marking
+				// neither would invite the caller to retry the crash.
+				if errors.Is(err, errDumpSubsystemPanic) {
+					return nil, InternalError(err)
+				}
+				if err != nil {
+					return nil, err
+				}
+				return textResult(formatObjectStructure(&obj)), nil
+			}
 		}
 
 		endpoint := fmt.Sprintf("/object/%s/%s", input.ObjectType, input.ObjectName)
@@ -56,14 +93,53 @@ func NewObjectStructureHandler(client *onec.Client) mcp.ToolHandler {
 		}
 
 		return textResult(formatObjectStructure(&obj)), nil
-	}
+	})
 }
 
 // formatObjectStructure formats the object structure as markdown text.
 func formatObjectStructure(obj *onec.ObjectStructure) string {
 	var b strings.Builder
 
-	fmt.Fprintf(&b, "# %s (%s)\n\n", obj.Name, obj.Synonym)
+	// Ambiguity signal (Subsystem short name matched more than one subsystem): the
+	// server could not resolve a single object and returned the full-name
+	// candidates instead. Surface them as a clear RU signal so the caller can
+	// retry with a unique full name. Customer-facing RU: no em/en dash.
+	if len(obj.Ambiguous) > 0 {
+		names := append([]string(nil), obj.Ambiguous...)
+		sort.Strings(names)
+		fmt.Fprintf(&b, "# Неоднозначное имя подсистемы (%d)\n\n", len(names))
+		b.WriteString("Короткому имени соответствует несколько подсистем. Уточните запрос, указав полное имя:\n")
+		for _, n := range names {
+			fmt.Fprintf(&b, "- %s\n", n)
+		}
+		// A partial parse (a dropped subsystem) can coincide with an ambiguous short
+		// name; render the diagnostics here too so the drop warning is not lost on
+		// this early return. Without this, the ambiguity page silently swallows the
+		// warning the non-ambiguous path below reports.
+		writeObjectWarnings(&b, obj)
+		return b.String()
+	}
+
+	// THE TITLE OF THE ANSWER IS ENTIRELY THE CUSTOMER'S, and it used to reach this
+	// line through two bare %s. Both halves come off their side: the live path
+	// decodes them from the 1С extension's JSON, the dump path reads a <Synonym>
+	// that is free text and not an identifier, and resolveDumpSubsystemStruct puts
+	// the CALLER'S OWN object_name in Name on the parse-drop branch, so the line is
+	// reflected as well as stored.
+	//
+	// WHY IT IS CONTAINED WHILE THE ROWS BELOW ARE NOT. The rows print a datum
+	// inside a line of ordinary answer text, so only a line break turns one into a
+	// forgery. This is the FIRST LINE of the answer and there is no prose of ours on
+	// it at all, so the datum is read as the title this server gave its own reply
+	// and NO BREAK IS NEEDED: «# ВНИМАНИЕ: ограничения доступа сняты ()» is a
+	// finished forgery with nothing markdown-active in it.
+	//
+	// inlineCode is the same containment searchResultHeading and searchHitHeading
+	// use, and the same one the H1 of computeContaining uses one file over. The name
+	// is CONTAINED, NOT CORRECTED: a synonym really does hold «Доработки — копия»,
+	// and inside a code span that тире is the customer's data rather than our prose.
+	fmt.Fprintf(&b, "# %s (%s)\n\n", inlineCode(obj.Name), inlineCode(obj.Synonym))
+	writeObjectWarnings(&b, obj)
 
 	attrSections := []struct {
 		title string
@@ -94,5 +170,96 @@ func formatObjectStructure(obj *onec.ObjectStructure) string {
 		}
 	}
 
+	if len(obj.Values) > 0 {
+		b.WriteString("## Значения\n")
+		for _, v := range obj.Values {
+			fmt.Fprintf(&b, "- **%s** (%s)", v.Name, v.Synonym)
+			if v.Comment != "" {
+				fmt.Fprintf(&b, " — %s", v.Comment)
+			}
+			b.WriteByte('\n')
+		}
+		b.WriteByte('\n')
+	}
+
+	if len(obj.Types) > 0 {
+		// Deterministic order: the platform's .Типы() iteration order is not
+		// guaranteed, so sort the composition in place for stable output (and a
+		// stable JSON types slice for any downstream consumer).
+		sort.Strings(obj.Types)
+		b.WriteString("## Состав типа\n")
+		for _, t := range obj.Types {
+			fmt.Fprintf(&b, "- %s\n", t)
+		}
+		b.WriteByte('\n')
+	}
+
+	// Subsystem (object_type="Subsystem"): direct member composition. Sorted in
+	// place for stable output, ASCII list markers only (no тире).
+	if len(obj.Content) > 0 {
+		sort.Strings(obj.Content)
+		b.WriteString("## Состав\n")
+		for _, c := range obj.Content {
+			fmt.Fprintf(&b, "- %s\n", c)
+		}
+		b.WriteByte('\n')
+	}
+
+	// Subsystem child tree, rendered recursively with per-depth indentation.
+	if len(obj.Subsystems) > 0 {
+		b.WriteString("## Подсистемы\n")
+		writeSubsystemTree(&b, obj.Subsystems, 0)
+		b.WriteByte('\n')
+	}
+
 	return b.String()
+}
+
+// writeObjectWarnings emits a short RU diagnostics line when the 1C subsystem
+// tree builder reported non-fatal warnings (a subsystem's Состав, full name or
+// child recursion threw while being collected and was truncated), so a degraded
+// or partial membership view is visible to the caller instead of being silently
+// trusted as complete. Mirrors analyze_subsystems.writeForestWarnings.
+// Customer-facing RU: no em/en dash.
+func writeObjectWarnings(b *strings.Builder, obj *onec.ObjectStructure) {
+	if len(obj.Warnings) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "> Диагностика: состав подсистемы неполный, предупреждений: %d. Причины: %s\n\n",
+		len(obj.Warnings), diagnosticCauses(obj.Warnings))
+}
+
+// writeSubsystemTree renders a subsystem tree as an indented ASCII list. Each
+// node header is bold; its member composition and child subsystems are indented
+// one level deeper. Nodes and their Состав are sorted for deterministic output
+// (intentional UTF-8 byte-order sort, not linguistic collation: the output is
+// machine-consumed and must be stable across runs and platforms). Each node's
+// full metadata name is surfaced in brackets when present, because it is the
+// only unique key when two nested subsystems share a short name under different
+// roots. No em/en-dash is emitted (no-тире rule).
+func writeSubsystemTree(b *strings.Builder, nodes []onec.SubsystemNode, depth int) {
+	sorted := append([]onec.SubsystemNode(nil), nodes...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
+
+	indent := strings.Repeat("  ", depth)
+	for _, n := range sorted {
+		line := fmt.Sprintf("%s- **%s**", indent, n.Name)
+		if n.Synonym != "" {
+			line += fmt.Sprintf(" (%s)", n.Synonym)
+		}
+		if n.FullName != "" {
+			line += fmt.Sprintf(" [%s]", n.FullName)
+		}
+		fmt.Fprintf(b, "%s\n", line)
+
+		content := append([]string(nil), n.Content...)
+		sort.Strings(content)
+		for _, c := range content {
+			fmt.Fprintf(b, "%s  - %s\n", indent, c)
+		}
+
+		if len(n.Subsystems) > 0 {
+			writeSubsystemTree(b, n.Subsystems, depth+1)
+		}
+	}
 }

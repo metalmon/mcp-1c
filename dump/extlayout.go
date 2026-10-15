@@ -1,0 +1,1118 @@
+package dump
+
+import (
+	"bytes"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"unicode"
+)
+
+// The two dump shapes 1C actually emits for configuration extensions.
+//
+// WHAT WAS WRONG. This package keyed extensions off a top-level directory
+// literally named "Расширения". THE PLATFORM NEVER WRITES THAT DIRECTORY. It came
+// from one customer's hand made folder and was generalised into a rule. What 1C
+// really produces is:
+//
+//	-AllExtensions <dir>      <dir>/<ExtensionName>/<Kind>/...   one subdir each,
+//	                          named after the extension, no wrapper
+//	-Extension <Name> <dir>   FLAT: <dir>/Configuration.xml, <dir>/ConfigDumpInfo.xml
+//	                          and the kind directories at the top level
+//
+// Both were verified against real output on this machine; ~/Downloads/extdump_vm
+// holds two roots of the container kind side by side, and ~/Downloads/canon_vm and
+// ~/Downloads/mcp-modified are flat ones carrying .bsl. Neither shape has anything
+// a path-only rule could recognise: the flat one is byte for byte the layout of a
+// base configuration dump, and the container one is a wrapper like any other. So
+// the layout is a property OF THE DUMP ROOT, read once when the index is opened,
+// and not something bslPathToModuleName could ever derive on its own. That is why
+// this is a separate value threaded through the loaders rather than another branch
+// in the key function: bslPathToModuleName stays a pure function of a path, and
+// its pinned digests keep meaning what they meant.
+//
+// THE NAME COMES FROM THE MANIFEST, NEVER FROM THE DIRECTORY, and that is measured
+// here rather than reported from elsewhere: ~/Downloads/canon_vm declares
+// <Name>FeenlaceMCPService</Name> and ~/Downloads/mcp-modified declares
+// <Name>MCP_Polling</Name>, so a real extension dump can and does have a directory
+// name that is not the extension name. The two dumps are NAMED rather than counted
+// against a total for this machine: the named pair is checkable, a machine-wide
+// total is not. A directory-derived
+// namespace would file their modules under a name nobody can ask for. It also keeps
+// the old hazard shut: a real configuration contains a CommonForm literally named
+// «Расширения», and nothing here reads that word as evidence of anything.
+//
+// ---------------------------------------------------------------------------
+// THE CONTRACT. Detection answers a question that HAS THREE ANSWERS, and the type
+// below can hold all three. The previous version could hold two, and every
+// ambiguity, every hostile input and every self-imposed limit was folded into the
+// confident half of a boolean.
+//
+//	IS an extension        -> the manifest was read to its end and declares one,
+//	                          under a name that can be part of a key
+//	is NOT an extension    -> the manifest was read to its end and declares none,
+//	                          or there is no manifest at all
+//	UNDECIDED              -> evidence was absent, truncated, refused or hostile
+//
+// UNDECIDED NEVER PRODUCES A NAMESPACE. It produces the keys that shipped before
+// any of this existed, plus a recorded doubt that both diagnostic channels report.
+// The asymmetry is the whole reason for the third value: a false positive on a
+// dump ROOT re-keys EVERY module in the dump (measured: all 13575 of
+// dumps/dump_bsl), and a fabricated "ext.<Name>." prefix is an invention presented
+// as fact, because the user cannot tell "not in the dump" from "filed under a name
+// the server made up". A false negative loses one namespace, leaves the keys where
+// they have always been, and the collapse counter in collapsed_keys.go measures
+// whatever content that costs. A measured loss beats an unmeasurable invention.
+//
+// EVIDENCE AND PRECEDENCE, cheapest first:
+//
+//  1. The root's own manifest decides whether the root IS one extension.
+//  2. Every immediate child directory is examined too, ALWAYS, including when the
+//     root is itself an extension. That is what makes the container-with-a-manifest
+//     case decidable at all rather than resolved by precedence: a child that
+//     declares its own name owns its own subtree, and the root's name covers only
+//     what is left. Skipping the children when the root matched is what filed
+//     every child of such a container under the container's name.
+//  3. A child whose name is a metadata kind directory (or "Ext", or the legacy
+//     extension container) is NOT eligible to be a nested extension WHEN THE ROOT
+//     IS ITSELF ONE: in that tree those directories are the root extension's own
+//     content. When the root is not an extension there is no such tree to belong
+//     to, and the manifest decides alone.
+//
+// WHAT GATES IT. <ObjectBelonging>Adopted</ObjectBelonging> INSIDE the <Properties>
+// element, which is where the platform writes it (measured at byte 2340 of
+// ~/Downloads/extdump_vm/FeenlaceMCPService/Configuration.xml, 17 bytes into a
+// <Properties> that opens at 2323). NOT the purpose element:
+// ConfigurationExtensionPurpose arrived in format 2.16 defaulting to Patch, so an
+// export older than that carries none, and reading "no purpose element" as "not an
+// extension" would drop every one of them.
+//
+// WHAT IS NOT HERE, said plainly rather than left to look measured. There is no
+// EDT branch. There is no Configuration.mdo anywhere on this machine, so any
+// strictness written for it would be invented from the same reported byte shape as
+// the loose version it replaced, and a guard invented from a specification nobody
+// can check is not a guard. The loose version was not theoretical: a base
+// configuration head carrying the string "mdclassExtension:ConfigurationExtension"
+// anywhere at all, a comment included, was accepted as an extension and named after
+// the configuration itself. An EDT project therefore falls through to exactly the
+// behaviour that shipped before this file existed, and no test in this tree claims
+// EDT coverage. See TestEDTIsNotClaimedAndNotDetected.
+// ---------------------------------------------------------------------------
+
+const (
+	// extManifestClassic is the ONE manifest that can carry the marker.
+	// ConfigDumpInfo.xml is deliberately not among them: it says nothing about
+	// extension-ness, and on a configuration it is enormous (20 591 903 bytes in
+	// dumps/dump_2), so never opening it is worth stating rather than leaving to
+	// chance.
+	extManifestClassic = "Configuration.xml"
+
+	// maxManifestHeadBytes bounds how much of a manifest is ever read.
+	//
+	// A CAP ON THE READ RATHER THAN ON THE FILE SIZE, and that is the stronger of
+	// the two: a size cap makes the cost depend on the file, and this makes it
+	// depend on nothing. A configuration's Configuration.xml is 1 339 696 bytes in
+	// dumps/dump_2 and is answered from its first 256 KiB like everything else.
+	//
+	// The window is far larger than it needs to be for the shapes measured. In the
+	// real base configuration <Properties> spans bytes 2378..12718, and the four
+	// real extension manifests close theirs by byte 3571 at the latest, so every decision this
+	// file makes is settled inside the first 13 KB. What could consume the window
+	// is <InternalInfo>, which grows with the number of contained objects.
+	//
+	// A <Properties> that does not CLOSE inside the window is UNDECIDED and says
+	// so. It is not read as "no marker found", which is what silently demoted such
+	// a manifest to the base keyspace with nothing to show for it.
+	maxManifestHeadBytes = 256 << 10
+
+	// maxExtensionScan bounds how many candidate child directories are examined.
+	// Reaching it is recorded as a doubt, because "no extension below this" and
+	// "no extension among the first 64 directories" are different answers and the
+	// difference is the one that turns a lossless tree lossy: an extension the scan
+	// never reached keys into the base keyspace and collides with every other one
+	// it never reached.
+	maxExtensionScan = 64
+
+	// maxNestedProbeEntries bounds the size of a directory the one-level descent
+	// below will list through. Past it the descent stops.
+	//
+	// IT IS A HYPOTHESIS AND NO CORPUS IN THIS TREE STANDS BEHIND IT. The argument
+	// for a small number is that a directory which WRAPS a dump is small by
+	// construction, while a directory holding product data is not; the tree the
+	// defect was reported against holds one entry. What would settle the value is a census over real --dump
+	// roots recording, for every top-level directory belongsToSelfExtension does not
+	// refuse, its entry count and whether a subdirectory of it carries an extension
+	// manifest. Nothing here has measured that.
+	maxNestedProbeEntries = 32
+
+	// maxNestedProbeChildren bounds how many subdirectories the descent asks the
+	// manifest question about IN TOTAL, across every child of the root.
+	//
+	// It is maxExtensionScan and is written as that constant rather than as its
+	// value: the second level may never spend more manifest questions than the
+	// first is already allowed to spend. That inequality is the whole of the
+	// justification, and the number it resolves to is as unmeasured as the one
+	// above.
+	maxNestedProbeChildren = maxExtensionScan
+
+	// maxExtensionNameRunes bounds an accepted extension name. It is a bound on
+	// what becomes a key component and a rendered string, not a platform limit.
+	maxExtensionNameRunes = 128
+)
+
+// manifestVerdict is the answer described in the contract above. It is not
+// numbered here: the contract groups «absent» and «present but not an extension»
+// into a single answer while the constants below keep them apart, so the two ways
+// of counting this type do not agree, and a written total picks whichever reading
+// the next reader did not have.
+type manifestVerdict uint8
+
+const (
+	// manifestAbsent: there is no manifest here. Not an extension, no doubt.
+	manifestAbsent manifestVerdict = iota
+	// manifestNotExtension: the manifest was read to its end and declares none.
+	manifestNotExtension
+	// manifestExtension: it declares one, under a usable name.
+	manifestExtension
+	// manifestUndecided: a manifest is there and the question was not answered.
+	manifestUndecided
+)
+
+// layoutDoubtReason names why a directory could not be decided. It is a closed
+// enum rather than a free string so both delivery channels can render it without
+// ever echoing bytes that came off disk.
+type layoutDoubtReason uint8
+
+const (
+	doubtManifestUnreadable layoutDoubtReason = iota + 1
+	doubtManifestNotRegular
+	doubtManifestTruncated
+	doubtNameRejected
+	doubtScanTruncated
+	// doubtManifestMalformed is a COMPLETE manifest head carrying one of
+	// markupNoiseKinds that never closes: an XML comment, a CDATA section or a
+	// processing instruction. It is not doubtManifestTruncated, which means the READ
+	// WINDOW ended mid-document: here the whole document was read and the document
+	// itself is broken, so the operator's next move is different and the counter that
+	// reports it has to be different too.
+	doubtManifestMalformed
+	// doubtManifestUnscannable is a manifest head carrying a markup DECLARATION,
+	// which this byte scan cannot bound. See unscannableOpen for what those are and
+	// why their extent is not a fixed byte sequence. Distinct from Malformed on
+	// purpose: such a document is not broken at all, it is simply outside what a scan
+	// can read, and the two call for different things from an operator.
+	doubtManifestUnscannable
+)
+
+// layoutDoubt is one recorded "I do not know".
+//
+// dir is kept for the OPERATOR LOG only and is never rendered into an MCP answer:
+// it is a directory name off disk, and a directory name off disk is untrusted text
+// (a real customer tree contains «Доработки — копия»). The MCP side gets counts and
+// the closed reason above, which is why it cannot carry a тире no matter what the
+// tree is called.
+type layoutDoubt struct {
+	dir    string // "" means the dump root itself
+	reason layoutDoubtReason
+}
+
+// extensionLayout says how a dump ROOT relates to configuration extensions. The
+// zero value means "an ordinary dump", and it changes no key whatsoever, which is
+// the property that keeps every existing installation on the keys it already has.
+type extensionLayout struct {
+	// self is the extension name when the root ITSELF is one extension, the
+	// -Extension shape. Empty otherwise.
+	self string
+	// byDir maps an immediate child directory to the extension name its own
+	// manifest declares, the -AllExtensions shape. Nil otherwise.
+	byDir map[string]string
+	// byPrefix maps a TWO-SEGMENT root-relative prefix, "<child>/<grandchild>" and
+	// always slash-separated whatever the platform's separator is, to the extension
+	// name the manifest there declares. Nil otherwise.
+	//
+	// It exists because the two halves of the key derivation disagreed about depth.
+	// This detection stopped at the root's immediate children while anchorIndex in
+	// index.go scans EVERY segment, so an extension one level lower than the
+	// detection looks had its wrapper segments dropped with no namespace put back
+	// and its modules landed on the base configuration's own keys. Measured on the
+	// tree of issue 46: the surviving key served the EXTENSION's bytes, because
+	// WalkDir is lexical and the second write into pathByName won.
+	//
+	// A key of this map can never share its first segment with a key of byDir: the
+	// descent runs only where the child's own verdict was manifestAbsent, which is
+	// exactly the verdict that keeps that child out of byDir.
+	byPrefix map[string]string
+	// doubts is every directory whose extension-ness could not be decided. It is
+	// never a reason to guess; it is the thing that gets reported.
+	doubts []layoutDoubt
+	// cost is what the detection actually spent, for the same reason
+	// DumpRootInspection carries ReadDirs and Entries: the claim that this does not
+	// walk the tree is worth exactly as much as the test that can measure it.
+	cost extensionScanCost
+}
+
+// extensionScanCost is the syscall budget one detection spent.
+type extensionScanCost struct {
+	ReadDirs int // os.ReadDir calls, including the byte-exact name confirmations
+	Lstats   int // os.Lstat calls, one per candidate directory
+	Reads    int // manifests actually opened and read
+}
+
+// empty reports whether the layout changes nothing.
+func (l extensionLayout) empty() bool {
+	return l.self == "" && len(l.byDir) == 0 && len(l.byPrefix) == 0
+}
+
+// moduleKey derives the index key for a dump-relative path under this layout.
+//
+// It delegates to bslPathToModuleName for everything except the namespace, so an
+// extension's modules go through exactly the same derivation the base
+// configuration does and land on the same "ext.<Имя>." shape the Расширения layout
+// has always produced. One key shape, three ways of arriving at it.
+//
+// A CHILD BEATS THE ROOT, because a child match is the more specific evidence: in
+// a container that carries its own manifest, "ExtA/..." is ExtA's and only what is
+// left over is the container's. Resolving that by precedence instead, the way this
+// did before, filed every child under the container's name and collided them with
+// each other. THE LONGER PREFIX IS ASKED FIRST for the same reason one level
+// further down: two segments are more specific evidence than one.
+func (l extensionLayout) moduleKey(relPath string) string {
+	slash := filepath.ToSlash(relPath)
+	if len(l.byPrefix) > 0 {
+		parts := strings.Split(slash, "/")
+		// Two segments for the prefix and at least one for what is inside it.
+		if len(parts) >= 3 {
+			if name, ok := l.byPrefix[parts[0]+"/"+parts[1]]; ok {
+				return NFC("ext." + name + "." + bslPathToModuleName(strings.Join(parts[2:], "/")))
+			}
+		}
+	}
+	if len(l.byDir) > 0 {
+		parts := strings.Split(slash, "/")
+		// At least a directory and a file, or there is no extension subtree to be
+		// inside of.
+		if len(parts) >= 2 {
+			if name, ok := l.byDir[parts[0]]; ok {
+				return NFC("ext." + name + "." + bslPathToModuleName(strings.Join(parts[1:], "/")))
+			}
+		}
+	}
+	if l.self != "" {
+		return NFC("ext." + l.self + "." + bslPathToModuleName(relPath))
+	}
+	return bslPathToModuleName(relPath)
+}
+
+// detectExtensionLayout reads dir and decides which of the two shapes it is, or
+// neither, or that it does not know.
+//
+// THE COST. One ReadDir of dir, one Lstat per child directory, and a read of a
+// manifest only where an Lstat found one. The extra ReadDir that confirms a
+// manifest's name byte-exactly is paid ONLY on that same Lstat hit, which on a base
+// configuration dump means once, at the root. TestLayoutDetectionCostIsBounded
+// measures it as numbers rather than arguing it.
+//
+// THE DESCENT: ONE LEVEL FURTHER, AND ONLY WHERE THE FIRST LEVEL FOUND NOTHING. A
+// child whose own verdict was manifestAbsent, and whose NAME is not one
+// belongsToSelfExtension refuses, is listed once and each of ITS subdirectories is
+// asked the same manifest question. Nothing below that is looked at. The listing is
+// refused past maxNestedProbeEntries and the subdirectories asked across ALL
+// children are capped by maxNestedProbeChildren.
+//
+// WHAT THAT COSTS A BASE CONFIGURATION depends on its top level, not on its size.
+// The five kind directories of the tree TestLayoutDetectionCostIsBounded builds are
+// all dumpDirNames members, so they are refused BY NAME before any listing and that
+// test's exact numbers do not move. A real dump can still hold a top-level
+// directory the table does not name: ExternalDataProcessors is deliberately absent
+// from dumpDirNames (see metadata_types.go), and a directory like it is listed on
+// every start.
+//
+// KNOWN LIMIT, stated because it is real: GenSig hashes the .bsl files of a dump
+// and nothing else, so ADDING a Configuration.xml to a dump that already has a
+// warm generation does not change the signature and the old keys keep being
+// served until something else invalidates it. The condition needs an operator to
+// drop a manifest into an already-indexed tree, and the remedy is the one that
+// already exists for every such case, `--reindex`.
+func detectExtensionLayout(dir string) extensionLayout {
+	return detectExtensionLayoutMode(dir, nil)
+}
+
+// Form lookup must prove its source unique. Keep roots whose manifest names
+// collide, and record every bounded descent skipped without a verdict.
+func detectExtensionLayoutMode(dir string, bound *os.Root) extensionLayout {
+	strict := bound != nil
+	var l extensionLayout
+	readDir := func(path string) ([]os.DirEntry, error) {
+		if bound == nil {
+			return os.ReadDir(path)
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return nil, err
+		}
+		return readDirInRoot(bound, rel)
+	}
+	verdictOf := func(path string, cost *extensionScanCost) (manifestVerdict, string, layoutDoubtReason) {
+		if bound == nil {
+			return manifestVerdictOf(path, cost)
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return manifestUndecided, "", doubtManifestUnreadable
+		}
+		return manifestVerdictInRoot(bound, rel, cost)
+	}
+
+	ents, err := readDir(dir)
+	if err != nil {
+		if strict {
+			l.doubts = append(l.doubts, layoutDoubt{reason: doubtManifestUnreadable})
+		}
+		// Unreadable root: not an extension and not the parent of one. The path
+		// itself is a question dumpPathFault in cmd/mcp-1c already answers.
+		return l
+	}
+	l.cost.ReadDirs++
+
+	switch verdict, name, reason := verdictOf(dir, &l.cost); verdict {
+	case manifestExtension:
+		l.self = name
+	case manifestUndecided:
+		l.doubts = append(l.doubts, layoutDoubt{reason: reason})
+	}
+
+	scanned := 0
+	probed := 0
+	for _, e := range ents {
+		if !e.IsDir() {
+			continue
+		}
+		child := e.Name()
+		if l.self != "" && belongsToSelfExtension(child) {
+			continue
+		}
+		if scanned == maxExtensionScan {
+			l.doubts = append(l.doubts, layoutDoubt{reason: doubtScanTruncated})
+			break
+		}
+		scanned++
+		switch verdict, name, reason := verdictOf(filepath.Join(dir, child), &l.cost); verdict {
+		case manifestExtension:
+			if l.byDir == nil {
+				l.byDir = make(map[string]string, 4)
+			}
+			l.byDir[child] = name
+		case manifestUndecided:
+			l.doubts = append(l.doubts, layoutDoubt{dir: child, reason: reason})
+		case manifestAbsent:
+			// NOTHING HERE, SO LOOK ONE LEVEL LOWER. manifestNotExtension is
+			// deliberately not in this branch: a child that carries a manifest and
+			// was read to its end has ANSWERED, and this file does not ask what else
+			// it might be. Whether such a child is a dump root of its own is
+			// dumproot.go's question (DumpRootInspection.NestedRoots).
+			//
+			// The name check is the SAME predicate the -Extension branch above uses,
+			// asked here for a different reason and therefore not folded into that
+			// call site: there it says «this is the root extension's own content»,
+			// here it says «this is the content of whatever holds it». Descending
+			// into one would cost a ReadDir per kind directory and an Lstat per
+			// object below it, on every start, which is the growth
+			// TestLayoutDetectionCostIsBounded exists to refuse.
+			if belongsToSelfExtension(child) && !(strict && child == extensionDirName && l.self == "") {
+				continue
+			}
+			l.probeNestedExtensionsMode(dir, child, &probed, strict, readDir, verdictOf)
+		}
+	}
+	if !strict {
+		l.dropPrefixNameCollisions()
+	}
+	return l
+}
+
+// dropPrefixNameCollisions removes every byPrefix entry whose extension name is not
+// unique across {self} + byDir + byPrefix. self and byDir are never touched.
+//
+// WHY ANYTHING IS DROPPED. moduleKey derives ONE namespace per NAME, so two entries
+// carrying one name key two subtrees into one namespace and one of the two files
+// stops being reachable through GetContent. Measured on the tree
+// TestADepthTwoExtensionMayNotTakeADepthOneName builds: without this pass the two
+// files produce ONE key twice, CollapsedKeys reports {Files:1 Keys:1}, and that key
+// serves the deeper file's bytes.
+//
+// NEITHER COLLIDING ENTRY IS KEPT. Dropping the byDir entry as well would send both
+// subtrees to one base key, and the extension one level down would lose the
+// namespace its own manifest declares to a directory that has no claim on it.
+// Keeping the first one is order dependent, and "first" here is os.ReadDir byte
+// order, which a rename changes.
+//
+// IT RUNS AFTER THE LOOP AND NOT AT THE ASSIGNMENT. byDir is INCOMPLETE while the
+// descent runs: os.ReadDir sorts, so a wrapper named «Ааа» is descended into before
+// a genuine «Настоящее» is read, and the same question asked where the entry is
+// recorded answers differently for two trees that differ by that rename.
+// TestTheNameCheckDoesNotDependOnDirectoryOrder is that difference as a test.
+//
+// The names are counted under NFC because that is the form moduleKey puts into the
+// key.
+func (l *extensionLayout) dropPrefixNameCollisions() {
+	if len(l.byPrefix) == 0 {
+		return
+	}
+	seen := make(map[string]int, len(l.byDir)+len(l.byPrefix)+1)
+	if l.self != "" {
+		seen[NFC(l.self)]++
+	}
+	for _, name := range l.byDir {
+		seen[NFC(name)]++
+	}
+	for _, name := range l.byPrefix {
+		seen[NFC(name)]++
+	}
+	for prefix, name := range l.byPrefix {
+		if seen[NFC(name)] > 1 {
+			delete(l.byPrefix, prefix)
+		}
+	}
+	if len(l.byPrefix) == 0 {
+		l.byPrefix = nil
+	}
+}
+
+// probeNestedExtensions asks the manifest question about the immediate children of
+// ONE child of the dump root, and records a hit under the two-segment prefix that
+// reaches it. It goes no deeper: depth two below the root is the whole of it.
+func (l *extensionLayout) probeNestedExtensions(root, child string, budget *int) {
+	l.probeNestedExtensionsMode(root, child, budget, false, os.ReadDir, manifestVerdictOf)
+}
+
+func (l *extensionLayout) probeNestedExtensionsMode(root, child string, budget *int, strict bool, readDir func(string) ([]os.DirEntry, error), verdictOf func(string, *extensionScanCost) (manifestVerdict, string, layoutDoubtReason)) {
+	if *budget >= maxNestedProbeChildren {
+		if strict {
+			l.doubts = append(l.doubts, layoutDoubt{dir: child, reason: doubtScanTruncated})
+		}
+		return
+	}
+	path := filepath.Join(root, child)
+
+	ents, err := readDir(path)
+	if err != nil {
+		if strict {
+			l.doubts = append(l.doubts, layoutDoubt{dir: child, reason: doubtManifestUnreadable})
+		}
+		// SILENT, AND THAT MATCHES WHAT THE LEVEL ABOVE ALREADY DID. This branch is
+		// reached only on manifestAbsent, and manifestVerdictOf returned that for
+		// THIS SAME DIRECTORY while recording no doubt. Reporting the directory here
+		// and not there would leave the two levels disagreeing about one directory,
+		// which is a change to the depth-one answer and not this one.
+		return
+	}
+	l.cost.ReadDirs++
+
+	// THE SIZE OF A DIRECTORY NOBODY HAS CLASSIFIED IS THE COST OF LOOKING IN IT.
+	if len(ents) > maxNestedProbeEntries {
+		if strict {
+			l.doubts = append(l.doubts, layoutDoubt{dir: child, reason: doubtScanTruncated})
+		}
+		return
+	}
+
+	for _, e := range ents {
+		if !e.IsDir() {
+			continue
+		}
+		if *budget >= maxNestedProbeChildren {
+			if strict {
+				l.doubts = append(l.doubts, layoutDoubt{dir: child, reason: doubtScanTruncated})
+			}
+			return
+		}
+		grand := e.Name()
+		// A GRANDCHILD NAMED FOR A METADATA KIND IS THE CONTENT OF THE DIRECTORY
+		// ABOVE IT, so a manifest sitting in one names an extension over a subtree
+		// that is not its own. Admitting it makes the kind segment part of the
+		// two-segment prefix, bslPathToModuleName never sees it, and every key under
+		// that prefix loses the kind it had. Refused before *budget++, so nothing is
+		// spent on an entry that is never asked about.
+		if belongsToSelfExtension(grand) {
+			continue
+		}
+		*budget++
+		prefix := child + "/" + grand
+		switch verdict, name, reason := verdictOf(filepath.Join(path, grand), &l.cost); verdict {
+		case manifestExtension:
+			if l.byPrefix == nil {
+				l.byPrefix = make(map[string]string, 2)
+			}
+			l.byPrefix[prefix] = name
+		case manifestUndecided:
+			l.doubts = append(l.doubts, layoutDoubt{dir: prefix, reason: reason})
+		}
+	}
+}
+
+// belongsToSelfExtension reports whether a child directory of a root that is
+// ITSELF an extension can only be that extension's own content. A metadata kind
+// directory, the configuration-module directory and the legacy extension container
+// are exactly those: inside a flat -Extension dump they are the extension's tree,
+// and treating one as a nested extension would strip its first segment and derive
+// a key from the remainder.
+func belongsToSelfExtension(child string) bool {
+	if _, ok := dumpDirNames[child]; ok {
+		return true
+	}
+	return child == configModuleDirName || child == extensionDirName
+}
+
+// extensionNameOf reports the extension name declared by a manifest in dir, and
+// whether dir is an extension at all. Undecided is not an extension.
+func extensionNameOf(dir string) (string, bool) {
+	var cost extensionScanCost
+	verdict, name, _ := manifestVerdictOf(dir, &cost)
+	return name, verdict == manifestExtension
+}
+
+// manifestVerdictOf classifies the extension manifest of dir.
+// Form fallback keeps manifest probes inside the same dump root as form files.
+func manifestVerdictInRoot(root *os.Root, dir string, cost *extensionScanCost) (manifestVerdict, string, layoutDoubtReason) {
+	path := filepath.Join(dir, extManifestClassic)
+	cost.Lstats++
+	lst, err := root.Lstat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return manifestAbsent, "", 0
+		}
+		return manifestUndecided, "", doubtManifestUnreadable
+	}
+	cost.ReadDirs++
+	entries, err := readDirInRoot(root, dir)
+	if err != nil {
+		return manifestUndecided, "", doubtManifestUnreadable
+	}
+	if !slices.ContainsFunc(entries, func(e os.DirEntry) bool { return e.Name() == extManifestClassic }) {
+		return manifestAbsent, "", 0
+	}
+	if !lst.Mode().IsRegular() {
+		return manifestUndecided, "", doubtManifestNotRegular
+	}
+	cost.Reads++
+	f, err := root.OpenFile(path, os.O_RDONLY|nonblockOpenFlag, 0)
+	if err != nil {
+		return manifestUndecided, "", doubtManifestUnreadable
+	}
+	defer f.Close()
+	head, complete, reason := readManifestFile(f, lst)
+	if reason != 0 {
+		return manifestUndecided, "", reason
+	}
+	return classifyManifestMode(head, complete, true)
+}
+
+func manifestVerdictOf(dir string, cost *extensionScanCost) (manifestVerdict, string, layoutDoubtReason) {
+	path := filepath.Join(dir, extManifestClassic)
+	cost.Lstats++
+
+	// Lstat FIRST, and lstat rather than stat: a symlink named Configuration.xml is
+	// refused here rather than followed, which is the one read in this package that
+	// was not contained by anything. It is also what keeps a FIFO from being opened
+	// at all; nonblockOpenFlag below only closes the window between this check and
+	// the open.
+	lst, err := os.Lstat(path)
+	if err != nil {
+		return manifestAbsent, "", 0
+	}
+
+	// macOS and Windows answer Lstat for "configuration.xml" too, and dumproot.go
+	// decides the very same question from a directory listing, where the comparison
+	// is byte-exact. Two rules for one question is how the two files came to
+	// disagree about the same tree, so the name is confirmed against the listing
+	// here as well. The listing is read only because an Lstat already hit, which on
+	// an ordinary dump means once.
+	cost.ReadDirs++
+	if !hasExactEntry(dir, extManifestClassic) {
+		return manifestAbsent, "", 0
+	}
+
+	if !lst.Mode().IsRegular() {
+		return manifestUndecided, "", doubtManifestNotRegular
+	}
+
+	cost.Reads++
+	head, complete, reason := readManifestHead(path, lst)
+	if reason != 0 {
+		return manifestUndecided, "", reason
+	}
+	return classifyManifest(head, complete)
+}
+
+// hasExactEntry reports whether dir holds an entry whose name is byte-exactly name.
+func hasExactEntry(dir, name string) bool {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	return slices.ContainsFunc(ents, func(e os.DirEntry) bool { return e.Name() == name })
+}
+
+// readManifestHead reads at most maxManifestHeadBytes from path and strips a UTF-8
+// BOM. 1C writes its XML as UTF-8 WITH a BOM, and bytes.TrimSpace does not remove
+// U+FEFF, so stripping it here is what stops the first element of the document
+// from being invisible to every match below.
+//
+// complete reports that the whole file fit in the window. It is what lets a
+// decision distinguish "the marker is not in this document" from "the marker may
+// be past where I stopped reading", which the caller then reports instead of
+// silently answering no.
+//
+// The open mirrors the pattern subsystem_reader.go already uses: nonblockOpenFlag
+// so a final component swapped for a writer-less FIFO in the check-to-use window
+// returns instead of blocking forever, and an os.SameFile against the pre-open
+// lstat so a component swapped for a different file is refused.
+func readManifestHead(path string, lst os.FileInfo) ([]byte, bool, layoutDoubtReason) {
+	f, err := os.OpenFile(path, os.O_RDONLY|nonblockOpenFlag, 0)
+	if err != nil {
+		return nil, false, doubtManifestUnreadable
+	}
+	defer f.Close()
+
+	return readManifestFile(f, lst)
+}
+
+func readManifestFile(f *os.File, lst os.FileInfo) ([]byte, bool, layoutDoubtReason) {
+	fst, err := f.Stat()
+	if err != nil {
+		return nil, false, doubtManifestUnreadable
+	}
+	if !fst.Mode().IsRegular() || !os.SameFile(lst, fst) {
+		return nil, false, doubtManifestNotRegular
+	}
+
+	// One byte past the window, so a file that exactly fills it is still known to
+	// have ended.
+	buf, err := io.ReadAll(io.LimitReader(f, maxManifestHeadBytes+1))
+	if err != nil {
+		return nil, false, doubtManifestUnreadable
+	}
+	complete := len(buf) <= maxManifestHeadBytes
+	if !complete {
+		buf = buf[:maxManifestHeadBytes]
+	}
+	return bytes.TrimPrefix(buf, []byte("\ufeff")), complete, 0
+}
+
+// classifyManifest decides from the <Properties> element and from nothing else.
+//
+// SCOPING THE MARKER TO <Properties> is what makes "not an extension" a real
+// answer rather than the absence of a match anywhere in a truncated document. The
+// platform writes ObjectBelonging as a child of Properties, immediately followed by
+// Name; a match outside that element is not evidence about the configuration
+// object, and a <Name> outside it belongs to something else entirely.
+//
+// It is a byte scan and not an XML parse on purpose: the input is a bounded head
+// that may end mid-document, which a real parser would reject outright, and the two
+// elements read here are simple text with no attributes and no nesting.
+func classifyManifest(head []byte, complete bool) (manifestVerdict, string, layoutDoubtReason) {
+	return classifyManifestMode(head, complete, false)
+}
+
+// Strict form selection needs a complete properties header even when the file
+// itself ended at EOF. A cut-off export cannot prove another source absent.
+// The ordinary module-index classifier retains its previous negative verdicts.
+func classifyManifestMode(head []byte, complete, strict bool) (manifestVerdict, string, layoutDoubtReason) {
+	const openProps, closeProps = "<Properties>", "</Properties>"
+
+	// A MARKER THAT IS NOT PART OF THE DOCUMENT STRUCTURE IS NOT EVIDENCE, and this
+	// file already says so about the branch it deleted: the EDT check gated on a
+	// naked substring, so a base configuration mentioning the marker «anywhere at
+	// all, a comment included» was accepted as an extension under the
+	// configuration's own name. Scoping the surviving check to <Properties>
+	// constrains WHERE in the document a match may sit, not WHAT KIND OF NODE it is,
+	// and an XML comment sits inside <Properties> perfectly happily. Measured on the
+	// real detector before this: a base configuration whose <Properties> merely
+	// quotes «<ObjectBelonging>Adopted</ObjectBelonging>» in a comment served
+	// «ext.УправлениеТорговлей.Справочник.Ном.МодульОбъекта», a commented-out
+	// <Properties> minted an extension out of a document that declares none, and a
+	// commented block placed BEFORE the real one renamed a genuine extension,
+	// because bytes.Index takes the first hit. CDATA is a fourth way in, a processing
+	// instruction a fifth, and a markup declaration a sixth.
+	head, whole := stripMarkupNoise(head)
+	if !whole {
+		if complete {
+			return manifestUndecided, "", doubtManifestMalformed
+		}
+		return manifestUndecided, "", doubtManifestTruncated
+	}
+
+	// WHAT IS LEFT THAT THIS SCAN CANNOT BOUND. See unscannableOpen: once the kinds
+	// with exact extents are stripped, a remaining "<!" opens a markup declaration,
+	// and none of those ends at a fixed byte sequence. The answer is the third one.
+	//
+	// CHECKED BEFORE THE SEARCH FOR <Properties> AND NOT AFTER, because a declaration
+	// can only sit ahead of the element it would shadow, and answering from a
+	// shadowed hit is the whole harm. A document with no <Properties> at all is
+	// undecided here too rather than "not an extension": a construct this reader
+	// cannot bound is not evidence for either answer.
+	//
+	// It is NOT folded into doubtManifestMalformed. That one means the DOCUMENT is
+	// broken; a DOCTYPE is well-formed XML and it is this READER that cannot bound
+	// it, so the operator's next move differs and the counter reporting it differs
+	// too. Reusing Malformed would have made its own doc comment false, which is the
+	// defect class this file keeps being repaired for.
+	if bytes.Contains(head, []byte(unscannableOpen)) {
+		return manifestUndecided, "", doubtManifestUnscannable
+	}
+
+	i := bytes.Index(head, []byte(openProps))
+	if i < 0 {
+		if complete {
+			if strict {
+				return manifestUndecided, "", doubtManifestMalformed
+			}
+			return manifestNotExtension, "", 0
+		}
+		return manifestUndecided, "", doubtManifestTruncated
+	}
+	rest := head[i+len(openProps):]
+	j := bytes.Index(rest, []byte(closeProps))
+	if j < 0 {
+		if complete {
+			if strict {
+				return manifestUndecided, "", doubtManifestMalformed
+			}
+			return manifestNotExtension, "", 0
+		}
+		return manifestUndecided, "", doubtManifestTruncated
+	}
+	props := rest[:j]
+
+	if !bytes.Contains(props, []byte("<ObjectBelonging>Adopted</ObjectBelonging>")) {
+		return manifestNotExtension, "", 0
+	}
+	name, ok := elementText(props, "Name")
+	if !ok || !validExtensionName(name) {
+		// An extension we cannot name. Refusing is the whole point: the name is
+		// about to become a key component and part of a rendered answer, and a
+		// name that is not an identifier would arrive there as one.
+		return manifestUndecided, "", doubtNameRejected
+	}
+	return manifestExtension, name, 0
+}
+
+// validExtensionName reports whether a manifest-declared name may become part of a
+// key.
+//
+// AN ALLOWLIST BY UNICODE CATEGORY, not a list of characters to strip. Letters,
+// decimal digits and the underscore, not starting with a digit, bounded in length.
+// Every extension name on this machine passes it: FeenlaceMCPService, mcp_service,
+// MCP_Polling, and the Доработки3D of the repository's own fixtures. Nothing else
+// does, and that is the point rather than a side effect:
+//
+//   - the key is dot separated, so a name holding a dot would silently move every
+//     other component one slot along;
+//   - the name is rendered into one line of an MCP answer, so a newline, a control
+//     character, a backtick or a leading ">" would leave the structure it was put
+//     in;
+//   - customer-facing RU carries no тире, and «Доработки — копия» is a real
+//     directory name from a real customer tree.
+//
+// A REJECTED NAME IS NOT REPAIRED. Replacing the offending runes would invent a
+// name the user cannot ask for and cannot recognise; the extension simply keeps the
+// keys it had before this file existed, and the refusal is reported.
+//
+// A LETTER IS NOT THE SAME THING AS A VISIBLE CHARACTER, and the gap between the
+// two was wide enough to drive a whole namespace through. unicode.IsLetter is true
+// for the Hangul fillers, which are category Lo and have no glyph: U+3164 ALONE
+// passed every clause above and produced the served key
+// «ext.<nothing you can see>.Справочник.Ном.МодульОбъекта». That is exactly the harm
+// the three-valued contract at the top of this file exists to prevent, and it did
+// not even land in the third value: the layout reported one recognised extension
+// and zero doubts, so nothing was said either.
+//
+// The predicate that separates them is Other_Default_Ignorable_Code_Point and
+// nothing else. Measured over all 0x110000 code points: IsPrint and IsGraphic are
+// TRUE for all four fillers, and none of them is in Zs, Cf or Mn, so every obvious
+// test misses them; the default-ignorable property catches exactly four runes that
+// this allowlist would otherwise admit (U+115F, U+1160, U+3164, U+FFA0) and not one
+// more. It rejects a name that CONTAINS one rather than only a name made entirely of
+// them, because «A» and «A<filler>» render identically and would be two distinct
+// served keys.
+func validExtensionName(s string) bool {
+	if s == "" {
+		return false
+	}
+	n := 0
+	for i, r := range s {
+		n++
+		if n > maxExtensionNameRunes {
+			return false
+		}
+		if unicode.Is(unicode.Other_Default_Ignorable_Code_Point, r) {
+			return false
+		}
+		switch {
+		case r == '_':
+		case unicode.IsLetter(r):
+		case unicode.IsDigit(r):
+			if i == 0 {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// markupNoiseKinds are the node kinds whose CONTENT IS NOT MARKUP and whose extent
+// a byte scan can find EXACTLY, because each is delimited by a fixed pair that
+// cannot nest. That second half is the membership rule, not an observation about
+// the three that happen to be here: a construct whose end is not a fixed byte
+// sequence cannot be stripped by a scan at all, and unscannableOpen is what this
+// file does with those instead.
+//
+// THE LIST WAS WRONG BY ONE AND THE COMMENT DECLARED IT COMPLETE. It said comments
+// and CDATA were «the two node kinds whose CONTENT is not markup». A PROCESSING
+// INSTRUCTION is a third, it is ordinary well-formed XML, and 1C writes one into
+// every manifest on this machine (the XML declaration, which shares the syntax).
+// Measured on the real detector before this, with the real manifests on this
+// machine as the control: a <?...?> inside <Properties> carrying
+// «<ObjectBelonging>Adopted</ObjectBelonging>» minted an extension out of a base
+// configuration, and one placed BEFORE the real <Properties> renamed a genuine
+// extension to «ЛОЖНОЕ» while the layout reported Extensions:1 Undecided:0. Full
+// confidence in a fabricated namespace is the exact harm the three-valued contract
+// at the top of this file exists to prevent, and the false sentence is what let it
+// through.
+var markupNoiseKinds = [...]struct{ open, closing string }{
+	{"<!--", "-->"},
+	{"<![CDATA[", "]]>"},
+	{"<?", "?>"},
+}
+
+// unscannableOpen is what is LEFT of the markup that is not element structure once
+// every kind above has been stripped.
+//
+// In a well-formed XML document a literal "<" may not appear in character data or
+// in an attribute value, so after the strip every remaining "<!" opens a markup
+// DECLARATION: the doctypedecl and, inside its internal subset, ENTITY, ELEMENT,
+// ATTLIST and NOTATION. None of them ends at a fixed byte sequence, because
+// "<!DOCTYPE x [ ... ]>" carries a bracketed subset whose own contents may hold
+// both "]" and ">" inside quoted literals, so this scan cannot bound them and must
+// not pretend to.
+//
+// MEASURED, AND IT IS A REAL WAY IN, NOT A TIDY-UP. Before this,
+// «<!DOCTYPE MetaDataObject [ <!ENTITY e "<Properties>...<Name>ЛОЖНОЕ</Name>..."> ]>»
+// placed ahead of a genuine <Properties> renamed the extension to ЛОЖНОЕ and
+// reported Extensions:1 Undecided:0, exactly as the processing instruction did.
+// A DOCTYPE is legal XML; nothing about it is malformed.
+//
+// MEASURED IN THE OTHER DIRECTION TOO, which is what makes refusing it cheap: over
+// the real Configuration.xml files this machine holds, NOT ONE contains "<!" at
+// all, in any form, and every one contains exactly one "<?", the XML declaration at
+// offset 0 or 3. HOW MANY FILES THAT WAS IS NOT WRITTEN DOWN: the figure that stood
+// here counted the handful the author had open, a later sweep of the same machine
+// reached far more, and nothing in this tree resolves either. What the refusal
+// rests on is the property, which held on every file both sweeps looked at. So the
+// strip must accept "<?" and the refusal below costs nothing that exists.
+const unscannableOpen = "<!"
+
+// stripMarkupNoise replaces every comment, CDATA section and processing instruction
+// in b with a single SPACE, so a marker that is character data, a remark or an
+// instruction to some other tool cannot be read as element structure. ok is false
+// when one of them was OPENED and never closed: everything after that point is
+// unknown, which is the third answer and not "no marker found".
+//
+// A SPACE AND NOT NOTHING, and that is not tidiness. Removing a comment outright
+// JOINS the bytes on either side of it, so
+// «<Object<!--x-->Belonging>Adopted</ObjectBelonging>» carries no marker but a
+// closing strip would MINT one out of two halves nobody wrote. Measured both ways:
+// with the bytes joined the marker appears, with the space it does not, and
+// TestAMarkerAssembledOutOfTwoHalvesIsNotMinted is the pin.
+//
+// It is still a byte scan, for the reason classifyManifest gives: the input is a
+// bounded head that may end mid-document, which a real XML parser rejects outright.
+//
+// THE LOWEST INDEX WINS, over the whole table rather than by a hand-written
+// comparison between two candidates. A construct that opens inside another one is
+// its content and not a construct: «<!-- <?x?> -->» is one comment, and
+// «<?x <!-- ?>» is one instruction with a stray "<!--" inside it. Picking the
+// earliest opener each turn is what makes that come out right for every pair, and
+// picking it from a table is what stops the next kind added here from needing a
+// third branch nobody re-derives.
+func stripMarkupNoise(b []byte) ([]byte, bool) {
+	var out bytes.Buffer
+	out.Grow(len(b))
+	for {
+		at := -1
+		var open, closing string
+		for _, k := range markupNoiseKinds {
+			i := bytes.Index(b, []byte(k.open))
+			if i < 0 || (at >= 0 && i >= at) {
+				continue
+			}
+			at, open, closing = i, k.open, k.closing
+		}
+		if at < 0 {
+			out.Write(b)
+			return out.Bytes(), true
+		}
+		out.Write(b[:at])
+		out.WriteByte(' ')
+		rest := b[at+len(open):]
+		j := bytes.Index(rest, []byte(closing))
+		if j < 0 {
+			return out.Bytes(), false
+		}
+		b = rest[j+len(closing):]
+	}
+}
+
+// elementText returns the text of the first <tag>...</tag> in b.
+func elementText(b []byte, tag string) (string, bool) {
+	open := []byte("<" + tag + ">")
+	i := bytes.Index(b, open)
+	if i < 0 {
+		return "", false
+	}
+	rest := b[i+len(open):]
+	j := bytes.Index(rest, []byte("</"+tag+">"))
+	if j < 0 {
+		return "", false
+	}
+	name := strings.TrimSpace(string(rest[:j]))
+	if name == "" {
+		return "", false
+	}
+	// NFC at the same chokepoint every other key component goes through: the name
+	// becomes part of a docID, and a decomposed one would never match an NFC query.
+	return NFC(name), true
+}
+
+// ---------------------------------------------------------------------------
+// Reporting what the detection decided, and what it could not.
+// ---------------------------------------------------------------------------
+
+// ExtensionLayoutSummary is a dump root's extension layout, in the shape a caller
+// OUTSIDE this package can describe it in.
+//
+// THE SPLIT BETWEEN COUNTS AND NAMES IS THE POINT. Everything a customer-facing
+// sentence may contain is a number or a boolean. Dirs holds directory names read
+// off disk, and a directory name read off disk is untrusted text: a real customer
+// tree contains «Доработки — копия», so a name spliced into RU prose puts a тире in
+// it whatever the guard on that prose says. Dirs is for the operator log, where it
+// belongs in an attribute beside the message rather than inside it.
+type ExtensionLayoutSummary struct {
+	// SelfNamed reports that the inspected path is itself one extension.
+	SelfNamed bool
+	// Extensions is how many directories below the inspected path are extensions.
+	Extensions int
+	// Dirs are those directories as root-relative prefixes, slash-separated on
+	// every platform, sorted. A child contributes one segment and a grandchild two,
+	// so a reader is told WHERE the extension is and not only that one exists.
+	// OPERATOR LOG ONLY; see above.
+	Dirs []string
+	// The ways a directory can be undecided, counted separately because the
+	// thing to do about each of them differs.
+	NotRegular    int // a Configuration.xml that is not a regular file
+	Unreadable    int // present, and the read failed
+	ReadTruncated int // <Properties> did not close inside the read window
+	NameRejected  int // declared a name that cannot be part of a key
+	Malformed     int // a comment, CDATA section or instruction that never closes
+	Unscannable   int // a markup declaration whose extent this scan cannot bound
+	// ScanTruncated reports that the child scan stopped at maxExtensionScan, so
+	// extensions below it were never looked for.
+	ScanTruncated bool
+}
+
+// Undecided is how many directories the detection could not answer for.
+func (s ExtensionLayoutSummary) Undecided() int {
+	return s.NotRegular + s.Unreadable + s.ReadTruncated + s.NameRejected +
+		s.Malformed + s.Unscannable
+}
+
+// Quiet reports that there is nothing at all to say about this layout.
+func (s ExtensionLayoutSummary) Quiet() bool {
+	return !s.SelfNamed && s.Extensions == 0 && s.Undecided() == 0 && !s.ScanTruncated
+}
+
+// summary renders the internal layout into the reportable one.
+func (l extensionLayout) summary() ExtensionLayoutSummary {
+	var s ExtensionLayoutSummary
+	s.SelfNamed = l.self != ""
+	s.Extensions = len(l.byDir) + len(l.byPrefix)
+	for dir := range l.byDir {
+		s.Dirs = append(s.Dirs, dir)
+	}
+	for prefix := range l.byPrefix {
+		s.Dirs = append(s.Dirs, prefix)
+	}
+	slices.Sort(s.Dirs)
+	for _, d := range l.doubts {
+		switch d.reason {
+		case doubtManifestNotRegular:
+			s.NotRegular++
+		case doubtManifestUnreadable:
+			s.Unreadable++
+		case doubtManifestTruncated:
+			s.ReadTruncated++
+		case doubtNameRejected:
+			s.NameRejected++
+		case doubtManifestMalformed:
+			s.Malformed++
+		case doubtManifestUnscannable:
+			s.Unscannable++
+		case doubtScanTruncated:
+			s.ScanTruncated = true
+		}
+	}
+	return s
+}
+
+// InspectExtensionLayout reads dir and reports what its extension layout amounts
+// to. It is the startup-time entry point, used before an index exists; the index's
+// own answer, taken from the layout it actually keyed with, is ExtensionLayout.
+func InspectExtensionLayout(dir string) ExtensionLayoutSummary {
+	return detectExtensionLayout(dir).summary()
+}
+
+// layout resolves this index's extension layout, reading the manifests the first
+// time and reusing that answer afterwards. It is the ONLY place idx.extLayout is
+// read, and TestExtensionLayoutIsNeverReadAroundItsOnce fails the build when a
+// second one appears.
+//
+// THE FIELD IS NOT THE LAYOUT UNTIL THE ONCE HAS RUN, and that distinction is not
+// pedantry; it was a shipped defect. noteWrappedPaths read idx.extLayout directly,
+// and the only caller that ever ran the Once was moduleKeyFor, which derives keys
+// FROM PATHS. A cold build goes through it for every file. The warm manifest start
+// and the read-only generation open take their DocIDs out of a manifest and never
+// derive a key at all, so on those paths the field was still the zero value: an
+// -AllExtensions container measured {Files:0 Total:2} cold and {Files:2 Total:2}
+// warm over byte-identical keys, and the wrapped-path notice then told the operator
+// on EVERY answer that the extension namespace was being lost and to restart
+// against the dump root, which reproduces it. Reading the field is therefore an
+// ordering assumption about a caller in another file, which is exactly the kind of
+// assumption a sync.Once exists to remove.
+//
+// Cost on the warm paths is what detectExtensionLayout's own COST paragraph states
+// and TestLayoutDetectionCostIsBounded measures, paid once per process. It was
+// already being paid: withIndexProtectionNotice in tools/index_notice.go asks this
+// index for ExtensionLayout on the first tool response either way.
+//
+// Safe to call with idx.mu held. detectExtensionLayout takes no index lock; it
+// reads the filesystem from idx.dir, which is fixed at construction.
+func (idx *Index) layout() extensionLayout {
+	idx.extLayoutOnce.Do(func() { idx.extLayout = detectExtensionLayout(idx.dir) })
+	return idx.extLayout
+}
+
+// ExtensionLayout reports the layout THIS INDEX derived its keys with, which is
+// the one a tool answer should describe. It is the layout read once behind
+// extLayoutOnce, so asking for it does not read the disk again and cannot disagree
+// with the keys already served.
+func (idx *Index) ExtensionLayout() ExtensionLayoutSummary {
+	if idx == nil {
+		return ExtensionLayoutSummary{}
+	}
+	return idx.layout().summary()
+}

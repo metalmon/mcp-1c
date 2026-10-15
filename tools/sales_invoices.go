@@ -68,11 +68,11 @@ func ReadSalesInvoicesTool() *mcp.Tool {
 }
 
 func NewReadSalesInvoicesHandler(client *onec.Client) mcp.ToolHandler {
-	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return WithToolErrors(headingSalesInvoicesRead, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var input readSalesInvoicesInput
 		if req.Params.Arguments != nil {
 			if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
-				return nil, fmt.Errorf("parsing input: %w", err)
+				return nil, InvalidParams(fmt.Errorf("parsing input: %w", err))
 			}
 		}
 		limit := clampLimit(input.Limit, defaultSalesInvoicesLimit, maxSalesInvoicesLimit)
@@ -93,7 +93,7 @@ func NewReadSalesInvoicesHandler(client *onec.Client) mcp.ToolHandler {
 			return nil, fmt.Errorf("reading sales invoices from 1C: %w", err)
 		}
 		return textResult(formatSalesInvoicesReadResult(&result)), nil
-	}
+	})
 }
 
 func CreateSalesInvoiceTool() *mcp.Tool {
@@ -133,10 +133,10 @@ func CreateSalesInvoiceTool() *mcp.Tool {
 }
 
 func NewCreateSalesInvoiceHandler(client *onec.Client) mcp.ToolHandler {
-	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return WithToolErrors(headingSalesInvoiceCreate, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var input createSalesInvoiceInput
 		if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
-			return nil, fmt.Errorf("parsing input: %w", err)
+			return nil, InvalidParams(fmt.Errorf("parsing input: %w", err))
 		}
 		if strings.TrimSpace(input.OrganizationRef) == "" || strings.TrimSpace(input.CounterpartyRef) == "" {
 			return nil, fmt.Errorf("organization_ref and counterparty_ref are required")
@@ -163,7 +163,7 @@ func NewCreateSalesInvoiceHandler(client *onec.Client) mcp.ToolHandler {
 			return nil, fmt.Errorf("1C returned unsuccessful create result")
 		}
 		return textResult(formatCreateSalesInvoiceResult(&result)), nil
-	}
+	})
 }
 
 func UpdateSalesInvoiceTool() *mcp.Tool {
@@ -203,10 +203,10 @@ func UpdateSalesInvoiceTool() *mcp.Tool {
 }
 
 func NewUpdateSalesInvoiceHandler(client *onec.Client) mcp.ToolHandler {
-	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return WithToolErrors(headingSalesInvoiceUpdate, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var input updateSalesInvoiceInput
 		if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
-			return nil, fmt.Errorf("parsing input: %w", err)
+			return nil, InvalidParams(fmt.Errorf("parsing input: %w", err))
 		}
 		if strings.TrimSpace(input.Ref) == "" {
 			return nil, fmt.Errorf("ref is required")
@@ -234,7 +234,7 @@ func NewUpdateSalesInvoiceHandler(client *onec.Client) mcp.ToolHandler {
 			return nil, fmt.Errorf("1C returned unsuccessful update result")
 		}
 		return textResult(formatUpdateSalesInvoiceResult(&result)), nil
-	}
+	})
 }
 
 func validatePostItems(items []onec.SalesItem) error {

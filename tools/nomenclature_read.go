@@ -50,11 +50,11 @@ func ReadNomenclatureTool() *mcp.Tool {
 
 // NewReadNomenclatureHandler returns a ToolHandler that reads nomenclature.
 func NewReadNomenclatureHandler(client *onec.Client) mcp.ToolHandler {
-	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return WithToolErrors(headingNomenclatureRead, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var input readNomenclatureInput
 		if req.Params.Arguments != nil {
 			if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
-				return nil, fmt.Errorf("parsing input: %w", err)
+				return nil, InvalidParams(fmt.Errorf("parsing input: %w", err))
 			}
 		}
 
@@ -74,7 +74,7 @@ func NewReadNomenclatureHandler(client *onec.Client) mcp.ToolHandler {
 		}
 
 		return textResult(formatNomenclatureReadResult(&result)), nil
-	}
+	})
 }
 
 func formatNomenclatureReadResult(r *onec.ReadNomenclatureResult) string {

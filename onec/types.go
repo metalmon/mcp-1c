@@ -2,12 +2,52 @@ package onec
 
 // ObjectStructure represents the structure of a 1C metadata object.
 type ObjectStructure struct {
-	Name         string        `json:"name"`
-	Synonym      string        `json:"synonym"`
-	Attributes   []Attribute   `json:"attributes"`
-	TabularParts []TabularPart `json:"tabularParts,omitempty"`
-	Dimensions   []Attribute   `json:"dimensions,omitempty"`
-	Resources    []Attribute   `json:"resources,omitempty"`
+	Name         string          `json:"name"`
+	Synonym      string          `json:"synonym"`
+	Attributes   []Attribute     `json:"attributes"`
+	TabularParts []TabularPart   `json:"tabularParts,omitempty"`
+	Dimensions   []Attribute     `json:"dimensions,omitempty"`
+	Resources    []Attribute     `json:"resources,omitempty"`
+	Values       []EnumValue     `json:"values,omitempty"`
+	Types        []string        `json:"types,omitempty"`      // состав ОпределяемогоТипа (DefinedType)
+	Content      []string        `json:"content,omitempty"`    // Состав подсистемы (Subsystem): полные имена объектов
+	Subsystems   []SubsystemNode `json:"subsystems,omitempty"` // вложенные подсистемы (Subsystem)
+	// Ambiguous carries the full metadata names of every subsystem matching an
+	// ambiguous short Subsystem name (get_object_structure). When set, the server
+	// could not resolve a single subsystem and the caller must retry with a full
+	// name; the other fields are unset. Mirrors the all-matches contract used by
+	// analyze_subsystems action=containing.
+	Ambiguous []string `json:"ambiguous,omitempty"`
+	// Warnings carries non-fatal diagnostics from the 1C subsystem tree builder
+	// (get_object_structure, object_type=Subsystem): a subsystem whose Состав, full
+	// name or child recursion threw while being collected is truncated, and its
+	// name plus the error text are recorded here so a degraded (partial) membership
+	// view is visible to the caller instead of being silently trusted as complete.
+	// Mirrors SubsystemForest.Warnings.
+	Warnings []string `json:"warnings,omitempty"`
+}
+
+// SubsystemNode represents one subsystem in a subsystem tree: its member
+// composition (Content, full metadata names) and any nested child subsystems.
+type SubsystemNode struct {
+	Name       string          `json:"name"`
+	FullName   string          `json:"fullName"`
+	Synonym    string          `json:"synonym"`
+	Content    []string        `json:"content"`
+	Subsystems []SubsystemNode `json:"subsystems,omitempty"`
+}
+
+// SubsystemForest is the response from the /subsystems endpoint: the full tree
+// of root subsystems plus the flat list of all applied objects' full names.
+// It feeds the analyze_subsystems tool (orphans / containing / intersections).
+type SubsystemForest struct {
+	Subsystems []SubsystemNode `json:"subsystems"`
+	AllObjects []string        `json:"allObjects"`
+	// Warnings carries non-fatal diagnostics from the 1C universe builder: an
+	// applied collection that threw while being enumerated is skipped, and its
+	// name plus the error text are recorded here so a degraded (partial) universe
+	// is visible to the caller instead of being silently trusted as complete.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // Attribute represents a metadata object attribute.
@@ -21,6 +61,13 @@ type Attribute struct {
 type TabularPart struct {
 	Name       string      `json:"name"`
 	Attributes []Attribute `json:"attributes"`
+}
+
+// EnumValue represents a single value of a 1C Enum metadata object.
+type EnumValue struct {
+	Name    string `json:"name"`
+	Synonym string `json:"synonym"`
+	Comment string `json:"comment"`
 }
 
 // QueryRequest is the request body for the query endpoint.
@@ -54,10 +101,11 @@ type FormStructure struct {
 
 // FormElement represents an element on a 1C form.
 type FormElement struct {
-	Name     string `json:"name"`
-	Type     string `json:"type"`
-	Title    string `json:"title,omitempty"`
-	DataPath string `json:"dataPath,omitempty"`
+	Name     string        `json:"name"`
+	Type     string        `json:"type"`
+	Title    string        `json:"title,omitempty"`
+	DataPath string        `json:"dataPath,omitempty"`
+	Events   []FormHandler `json:"events,omitempty"`
 }
 
 // FormCommand represents a form command.
@@ -88,8 +136,14 @@ type EventLogRequest struct {
 	StartDate string `json:"start_date,omitempty"`
 	EndDate   string `json:"end_date,omitempty"`
 	Level     string `json:"level,omitempty"`
-	User      string `json:"user,omitempty"`
-	Limit     int    `json:"limit,omitempty"`
+	// Event names the record must carry one of. A LIST rather than one name,
+	// because the platform's own filter key takes a list and an incident is
+	// normally read across several events at once.
+	//
+	// omitempty is load-bearing.
+	Event []string `json:"event,omitempty"`
+	User  string   `json:"user,omitempty"`
+	Limit int      `json:"limit,omitempty"`
 }
 
 // EventLogResult is the response from the eventlog endpoint.
@@ -109,15 +163,19 @@ type ConfigurationInfo struct {
 
 // EventLogEntry represents a single event log record.
 type EventLogEntry struct {
-	Date        string `json:"date"`
-	Level       string `json:"level"`
-	Event       string `json:"event"`
-	User        string `json:"user"`
-	Computer    string `json:"computer,omitempty"`
-	Metadata    string `json:"metadata,omitempty"`
-	Data        string `json:"data,omitempty"`
-	Comment     string `json:"comment,omitempty"`
-	Transaction string `json:"transaction,omitempty"`
+	Date  string `json:"date"`
+	Level string `json:"level"`
+	Event string `json:"event"`
+	// EventPresentation is the phrase the 1С event log window prints for Event,
+	// which is the only name most readers have: Event itself is a technical
+	// identifier and is the only thing the filter accepts.
+	EventPresentation string `json:"event_presentation,omitempty"`
+	User              string `json:"user"`
+	Computer          string `json:"computer,omitempty"`
+	Metadata          string `json:"metadata,omitempty"`
+	Data              string `json:"data,omitempty"`
+	Comment           string `json:"comment,omitempty"`
+	Transaction       string `json:"transaction,omitempty"`
 }
 
 // Counterparty represents a 1C counterparty.

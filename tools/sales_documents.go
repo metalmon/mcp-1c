@@ -70,11 +70,11 @@ func ReadSalesDocumentsTool() *mcp.Tool {
 }
 
 func NewReadSalesDocumentsHandler(client *onec.Client) mcp.ToolHandler {
-	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return WithToolErrors(headingSalesDocumentsRead, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var input readSalesDocumentsInput
 		if req.Params.Arguments != nil {
 			if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
-				return nil, fmt.Errorf("parsing input: %w", err)
+				return nil, InvalidParams(fmt.Errorf("parsing input: %w", err))
 			}
 		}
 		limit := clampLimit(input.Limit, defaultSalesDocumentsLimit, maxSalesDocumentsLimit)
@@ -91,7 +91,7 @@ func NewReadSalesDocumentsHandler(client *onec.Client) mcp.ToolHandler {
 			return nil, fmt.Errorf("reading sales documents from 1C: %w", err)
 		}
 		return textResult(formatSalesDocumentsReadResult(&result)), nil
-	}
+	})
 }
 
 func CreateSalesDocumentTool() *mcp.Tool {
@@ -132,10 +132,10 @@ func CreateSalesDocumentTool() *mcp.Tool {
 }
 
 func NewCreateSalesDocumentHandler(client *onec.Client) mcp.ToolHandler {
-	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return WithToolErrors(headingSalesDocumentCreate, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var input createSalesDocumentInput
 		if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
-			return nil, fmt.Errorf("parsing input: %w", err)
+			return nil, InvalidParams(fmt.Errorf("parsing input: %w", err))
 		}
 		if strings.TrimSpace(input.OrganizationRef) == "" || strings.TrimSpace(input.CounterpartyRef) == "" {
 			return nil, fmt.Errorf("organization_ref and counterparty_ref are required")
@@ -163,7 +163,7 @@ func NewCreateSalesDocumentHandler(client *onec.Client) mcp.ToolHandler {
 			return nil, fmt.Errorf("1C returned unsuccessful create result")
 		}
 		return textResult(formatCreateSalesDocumentResult(&result)), nil
-	}
+	})
 }
 
 func UpdateSalesDocumentTool() *mcp.Tool {
@@ -204,10 +204,10 @@ func UpdateSalesDocumentTool() *mcp.Tool {
 }
 
 func NewUpdateSalesDocumentHandler(client *onec.Client) mcp.ToolHandler {
-	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return WithToolErrors(headingSalesDocumentUpdate, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var input updateSalesDocumentInput
 		if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
-			return nil, fmt.Errorf("parsing input: %w", err)
+			return nil, InvalidParams(fmt.Errorf("parsing input: %w", err))
 		}
 		if strings.TrimSpace(input.Ref) == "" {
 			return nil, fmt.Errorf("ref is required")
@@ -236,7 +236,7 @@ func NewUpdateSalesDocumentHandler(client *onec.Client) mcp.ToolHandler {
 			return nil, fmt.Errorf("1C returned unsuccessful update result")
 		}
 		return textResult(formatUpdateSalesDocumentResult(&result)), nil
-	}
+	})
 }
 
 func formatSalesDocumentsReadResult(r *onec.ReadSalesDocumentsResult) string {

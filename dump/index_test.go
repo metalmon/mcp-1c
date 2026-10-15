@@ -1,10 +1,14 @@
 package dump
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +31,13 @@ func mkBSLFile(t *testing.T, base, relPath, content string) {
 }
 
 // waitReady blocks until idx.Ready() returns true or timeout expires.
+//
+// Ready() promises exactly one thing: the index is SEARCHABLE. It does not
+// promise that anything was written to the cache directory. On the cold-build
+// path buildShards flips ready.Store(true) and only THEN calls saveManifest, so
+// a test that asserts on cache FILES straight after this helper is asserting a
+// postcondition readiness does not carry. Wait for the file itself instead, e.g.
+// with waitManifest below.
 func waitReady(t *testing.T, idx *Index, timeout time.Duration) {
 	t.Helper()
 	deadline := time.After(timeout)
@@ -37,6 +48,55 @@ func waitReady(t *testing.T, idx *Index, timeout time.Duration) {
 		default:
 			time.Sleep(10 * time.Millisecond)
 		}
+	}
+}
+
+// waitManifest blocks until a manifest exists at cpath and returns it, failing
+// the test loudly if it never appears. A helper that gave up quietly would put
+// the same flake back in a new disguise, so the timeout is a t.Fatalf and never
+// a nil return.
+//
+// WHY IT IS NEEDED: readiness and the manifest are two different events, in that
+// order. buildShards sets idx.ready.Store(true) and only afterwards calls
+// idx.saveManifest(cpath) (dump/index.go, under "Save manifest for future
+// incremental updates"). Both run on the background build goroutine, so between
+// the flip and the atomic rename of manifest.json there is a real window in
+// which the index answers queries and manifest.json does not exist yet. Reading
+// it there returns (nil, nil) from LoadManifest, which cost this package a
+// 7-in-40 flake reported as "reload manifest after rebuild: m=<nil> err=<nil>".
+//
+// PRODUCT CONSEQUENCE, accepted behaviour and NOT a bug to fix: because the save
+// comes after the flip, a process killed inside that window has already served
+// answers and leaves no manifest behind, so the next start is a cold rebuild
+// instead of a warm one. That is the deliberate trade. Ready means searchable,
+// and moving saveManifest ahead of the flip would push a full manifest build (an
+// os.Stat per BSL file, see buildManifest) in front of the first answer on EVERY
+// start, to save a rebuild that only happens if the process dies inside a window
+// of milliseconds. The expectation in the test is what was wrong, not the order
+// of the two statements. Do not "fix" this by moving the save.
+//
+// This waits for EXISTENCE only, deliberately. Waiting for the manifest to also
+// carry some expected content would convert a real regression into a timeout
+// with no diagnosis; the caller keeps its own assertions on what it finds, and
+// they stay exactly as sharp as they were.
+func waitManifest(t *testing.T, cpath string, timeout time.Duration) *Manifest {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		m, err := LoadManifest(cpath)
+		if err != nil {
+			// A read or parse failure is a real defect, not a "not yet": Save
+			// writes to a temp file and renames, so a reader sees either no
+			// manifest or a whole one. Never retried, so it cannot hide here.
+			t.Fatalf("LoadManifest(%s): %v", cpath, err)
+		}
+		if m != nil {
+			return m
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out after %s waiting for manifest.json to appear in %s", timeout, cpath)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -457,7 +517,7 @@ func TestIndex_SearchWhileBuilding(t *testing.T) {
 	idx := &Index{
 		dir:           t.TempDir(),
 		alias:         bleve.NewIndexAlias(),
-		contentByName: make(map[string]string),
+		contentByName: make(map[string]cachedModule),
 		pathByName:    make(map[string]string),
 		ctx:           ctx,
 		cancel:        cancel,
@@ -616,7 +676,7 @@ func TestIndex_IndexDoc_NotReady(t *testing.T) {
 	idx := &Index{
 		dir:           t.TempDir(),
 		alias:         bleve.NewIndexAlias(),
-		contentByName: make(map[string]string),
+		contentByName: make(map[string]cachedModule),
 		pathByName:    make(map[string]string),
 		ctx:           ctx,
 		cancel:        cancel,
@@ -636,7 +696,7 @@ func TestIndex_DeleteDoc_NotReady(t *testing.T) {
 	idx := &Index{
 		dir:           t.TempDir(),
 		alias:         bleve.NewIndexAlias(),
-		contentByName: make(map[string]string),
+		contentByName: make(map[string]cachedModule),
 		pathByName:    make(map[string]string),
 		ctx:           ctx,
 		cancel:        cancel,
@@ -733,7 +793,7 @@ func TestIndex_GetContent_NotReady(t *testing.T) {
 	idx := &Index{
 		dir:           t.TempDir(),
 		alias:         bleve.NewIndexAlias(),
-		contentByName: make(map[string]string),
+		contentByName: make(map[string]cachedModule),
 		pathByName:    make(map[string]string),
 		ctx:           ctx,
 		cancel:        cancel,
@@ -817,7 +877,7 @@ func TestIndex_IndexDocWithMeta_NotReady(t *testing.T) {
 	idx := &Index{
 		dir:           t.TempDir(),
 		alias:         bleve.NewIndexAlias(),
-		contentByName: make(map[string]string),
+		contentByName: make(map[string]cachedModule),
 		pathByName:    make(map[string]string),
 		ctx:           ctx,
 		cancel:        cancel,
@@ -927,5 +987,739 @@ func TestIndex_DeleteDoc_RemovesFromNames(t *testing.T) {
 	}
 	if total != 0 || len(matches) != 0 {
 		t.Errorf("expected 0 regex matches after delete, got total=%d matches=%d", total, len(matches))
+	}
+}
+
+// TestSetShowProgress_NonTTY_StderrEmpty проверяет, что при SetShowProgress(false)
+// пакет dump не пишет ничего в stderr во время индексации.
+// Регрессия на Issue #14 (Kilo Code 7.x интерпретирует любой stderr как ошибку).
+func TestSetShowProgress_NonTTY_StderrEmpty(t *testing.T) {
+	origStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	os.Stderr = w
+	t.Cleanup(func() {
+		os.Stderr = origStderr
+	})
+
+	// Читаем stderr в отдельной горутине, чтобы pipe не заблокировал запись.
+	readDone := make(chan []byte, 1)
+	go func() {
+		data, _ := io.ReadAll(r)
+		readDone <- data
+	}()
+
+	SetShowProgress(false)
+
+	dumpDir := t.TempDir()
+	mkBSLFile(t, dumpDir, "CommonModules/TestMod/Ext/Module.bsl",
+		"Процедура Тест() КонецПроцедуры")
+
+	idx, err := NewIndex(dumpDir, filepath.Join(dumpDir, ".cache"), false)
+	if err != nil {
+		t.Fatalf("NewIndex: %v", err)
+	}
+	waitReady(t, idx, 30*time.Second)
+	idx.Close()
+
+	// Закрываем writer, чтобы горутина чтения завершилась.
+	w.Close()
+
+	var collected []byte
+	select {
+	case collected = <-readDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out reading stderr pipe")
+	}
+
+	if len(collected) > 0 {
+		t.Errorf("expected empty stderr with SetShowProgress(false), got %d bytes: %q",
+			len(collected), collected)
+	}
+}
+
+// TestSetShowProgress_TTY_StderrHasProgress проверяет, что при SetShowProgress(true)
+// пакет dump выводит в stderr информационные сообщения об индексации.
+// Регрессия: не должно быть "немого" режима в интерактивном терминале.
+func TestSetShowProgress_TTY_StderrHasProgress(t *testing.T) {
+	origStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	os.Stderr = w
+	t.Cleanup(func() {
+		os.Stderr = origStderr
+	})
+
+	readDone := make(chan []byte, 1)
+	go func() {
+		data, _ := io.ReadAll(r)
+		readDone <- data
+	}()
+
+	SetShowProgress(true)
+	t.Cleanup(func() { SetShowProgress(false) }) // сбрасываем флаг для других тестов
+
+	dumpDir := t.TempDir()
+	mkBSLFile(t, dumpDir, "CommonModules/TestMod/Ext/Module.bsl",
+		"Процедура Тест() КонецПроцедуры")
+
+	idx, err := NewIndex(dumpDir, filepath.Join(dumpDir, ".cache"), false)
+	if err != nil {
+		t.Fatalf("NewIndex: %v", err)
+	}
+	waitReady(t, idx, 30*time.Second)
+	idx.Close()
+
+	w.Close()
+
+	var collected []byte
+	select {
+	case collected = <-readDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out reading stderr pipe")
+	}
+
+	if len(collected) == 0 {
+		t.Errorf("expected non-empty stderr with SetShowProgress(true), got empty")
+	}
+	// Проверяем наличие осмысленного вывода: стартовая строка "Индексация" или
+	// финальная "Индексация завершена" всегда пишутся при tickerActive=true.
+	if !bytes.Contains(collected, []byte("Индекс")) && !bytes.Contains(collected, []byte("модул")) {
+		t.Logf("stderr content: %q (may be fine if build was faster than first tick)", collected)
+	}
+}
+
+// TestIndex_GetContent_ValueManagerModule проверяет полный round-trip для
+// Constants/<Имя>/Ext/ValueManagerModule.bsl: NewIndex обходит файл,
+// строит ключ "Константа.<Имя>.МодульМенеджераЗначения" и GetContent его резолвит.
+func TestIndex_GetContent_ValueManagerModule(t *testing.T) {
+	const wantContent = "Перем ТекущееЗначение Экспорт;\n"
+
+	dir := t.TempDir()
+	mkBSLFile(t, dir, "Constants/КурсВалюты/Ext/ValueManagerModule.bsl", wantContent)
+
+	idx, err := NewIndex(dir, "", false)
+	if err != nil {
+		t.Fatalf("NewIndex: %v", err)
+	}
+	defer idx.Close()
+	waitReady(t, idx, 30*time.Second)
+
+	const key = "Константа.КурсВалюты.МодульМенеджераЗначения"
+	content, ok := idx.GetContent(key)
+	if !ok {
+		t.Fatalf("GetContent(%q) returned ok=false; module was not indexed", key)
+	}
+	if content != wantContent {
+		t.Errorf("GetContent(%q) content mismatch:\ngot:  %q\nwant: %q", key, content, wantContent)
+	}
+}
+
+func TestBslPathToModuleName_ValueManagerModule(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		// XML-выгрузка: Constants/<Имя>/Ext/ValueManagerModule.bsl
+		{"xml dump value manager module",
+			"Constants/КурсВалюты/Ext/ValueManagerModule.bsl",
+			"Константа.КурсВалюты.МодульМенеджераЗначения"},
+		// EDT-формат: Constants/<Имя>/ValueManagerModule.bsl (без Ext)
+		{"edt dump value manager module",
+			"Constants/КурсВалюты/ValueManagerModule.bsl",
+			"Константа.КурсВалюты.МодульМенеджераЗначения"},
+		// Регресс: прочие виды модулей не затронуты удалением Ext.Module.bsl.
+		{"object module unaffected",
+			"Catalogs/Номенклатура/Ext/ObjectModule.bsl",
+			"Справочник.Номенклатура.МодульОбъекта"},
+		{"manager module unaffected",
+			"Documents/Реализация/Ext/ManagerModule.bsl",
+			"Документ.Реализация.МодульМенеджера"},
+		{"record set module unaffected",
+			"InformationRegisters/Цены/Ext/RecordSetModule.bsl",
+			"РегистрСведений.Цены.МодульНабораЗаписей"},
+		// Commands-подкаталог разворачивается в 5-частный ключ
+		// <Тип>.<Имя>.Команда.<ИмяКоманды>.МодульКоманды (по аналогии с Forms).
+		{"command module under Commands subdir",
+			"Catalogs/Номенклатура/Commands/Печать/Ext/CommandModule.bsl",
+			"Справочник.Номенклатура.Команда.Печать.МодульКоманды"},
+		{"form module unaffected",
+			"Documents/Док/Forms/ФормаДок/Ext/Module.bsl",
+			"Документ.Док.Форма.ФормаДок.МодульФормы"},
+		{"common module unaffected",
+			"CommonModules/ОбщийМодуль1/Ext/Module.bsl",
+			"ОбщийМодуль.ОбщийМодуль1.Модуль"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := bslPathToModuleName(tt.path)
+			if got != tt.want {
+				t.Errorf("bslPathToModuleName(%q) = %q, want %q", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestBslPathToModuleName_Extensions verifies the Расширения/<ext>/ subtree is
+// keyed as ext.<ext>.<base-config name>, exactly matching the storage key the
+// resolver derives from a normalised user path (ext.<extension>.<Normalize>).
+// Before the fix these paths collapsed to a blind 3-segment key
+// "Расширения.<ext>.<suffix>" (with the CommonModules->Модуль special-case never
+// firing, so even the suffix was wrong), and two different ext objects collided.
+func TestBslPathToModuleName_Extensions(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		// Extension CommonModule: the CommonModules->Модуль special-case must
+		// fire on the stripped remainder (suffix Модуль, not МодульФормы).
+		{"ext common module",
+			"Расширения/Доработки3D/CommonModules/WA_ПовтИсп/Ext/Module.bsl",
+			"ext.Доработки3D.ОбщийМодуль.WA_ПовтИсп.Модуль"},
+		// Extension DataProcessor object module.
+		{"ext data processor object module",
+			"Расширения/Доработки3D/DataProcessors/DP1/Ext/ObjectModule.bsl",
+			"ext.Доработки3D.Обработка.DP1.МодульОбъекта"},
+		// Extension document manager module (suffix from moduleNameSuffixes).
+		{"ext document manager module",
+			"Расширения/TestExt/Documents/Заказ/Ext/ManagerModule.bsl",
+			"ext.TestExt.Документ.Заказ.МодульМенеджера"},
+		// Extension form module: the Forms-subdir 5-segment expansion must work
+		// inside an extension too.
+		{"ext form module",
+			"Расширения/TestExt/Documents/Заказ/Forms/ФормаЗаказа/Ext/Module.bsl",
+			"ext.TestExt.Документ.Заказ.Форма.ФормаЗаказа.МодульФормы"},
+		// Extension form module, REAL on-disk shape: the customer dump carries a
+		// "Form" directory between "Ext" and "Module.bsl"
+		// (.../Forms/<f>/Ext/Form/Module.bsl), unlike the shorter .../Ext/Module.bsl
+		// row above. The indexer keys on the file name + the Forms infix, so the
+		// intermediate "Form" segment is irrelevant and BOTH shapes yield the same
+		// 5-segment key. This row locks the EXACT customer path
+		// (DataProcessor АРМ_ПробитиеЧековССайта form module of extension Доработки3D)
+		// to the key the resolver builds via "ext."+ext+BuildFormModulePath, which
+		// the modulefetch extension form-module fix depends on.
+		{"ext form module real shape (Ext/Form/Module.bsl)",
+			"Расширения/Доработки3D/DataProcessors/АРМ_ПробитиеЧековССайта/Forms/Форма/Ext/Form/Module.bsl",
+			"ext.Доработки3D.Обработка.АРМ_ПробитиеЧековССайта.Форма.Форма.МодульФормы"},
+		// Extension HTTP service: the plain-Module rule must fire on the
+		// stripped remainder too, so the suffix is Модуль and not МодульФормы.
+		{"ext http service module",
+			"Расширения/Доработки3D/HTTPServices/Сервис/Ext/Module.bsl",
+			"ext.Доработки3D.HTTPСервис.Сервис.Модуль"},
+		// Extension web service: same shape as the HTTP service.
+		{"ext web service module",
+			"Расширения/Доработки3D/WebServices/Обмен/Ext/Module.bsl",
+			"ext.Доработки3D.WebСервис.Обмен.Модуль"},
+		// Extension settings storage / filter criterion / sequence: prefix only.
+		{"ext settings storage manager module",
+			"Расширения/Доработки3D/SettingsStorages/Настройки/Ext/ManagerModule.bsl",
+			"ext.Доработки3D.ХранилищеНастроек.Настройки.МодульМенеджера"},
+		{"ext filter criterion manager module",
+			"Расширения/Доработки3D/FilterCriteria/ПоКонтрагенту/Ext/ManagerModule.bsl",
+			"ext.Доработки3D.КритерийОтбора.ПоКонтрагенту.МодульМенеджера"},
+		{"ext sequence record set module",
+			"Расширения/Доработки3D/Sequences/ДокументыОрганизаций/Ext/RecordSetModule.bsl",
+			"ext.Доработки3D.Последовательность.ДокументыОрганизаций.МодульНабораЗаписей"},
+		// The extension's OWN configuration modules: an extension root mirrors
+		// the configuration root and carries the same Ext directory. The trailing
+		// "Модуль" is the module type, exactly as for a base-config one.
+		{"ext session module",
+			"Расширения/Доработки3D/Ext/SessionModule.bsl",
+			"ext.Доработки3D.Конфигурация.МодульСеанса.Модуль"},
+		// Control: a base-config path with a literal first segment "Расширения"
+		// is impossible (it is a reserved dump dir), but a too-short path under
+		// it must not panic and falls back to base parsing.
+		{"too short under Расширения falls back",
+			"Расширения/TestExt/Module.bsl",
+			"Расширения.TestExt.МодульФормы"},
+		// Base-config control: unchanged.
+		{"base common module unaffected",
+			"CommonModules/ОбщийМодуль1/Ext/Module.bsl",
+			"ОбщийМодуль.ОбщийМодуль1.Модуль"},
+		{"base object module unaffected",
+			"Catalogs/Номенклатура/Ext/ObjectModule.bsl",
+			"Справочник.Номенклатура.МодульОбъекта"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := bslPathToModuleName(tt.path)
+			if got != tt.want {
+				t.Errorf("bslPathToModuleName(%q) = %q, want %q", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestBslPathToModuleName_CommonFormsCommandsJournals locks the flat keys for
+// three dump directories that were MISSING from dumpDirNames (CommonForms,
+// CommonCommands, DocumentJournals), so the indexer emitted raw-English-prefix
+// keys ("CommonForms.X.МодульФормы" etc.) that the resolver never queries.
+//
+// Verified real on-disk shapes:
+//   - CommonForm:    CommonForms/<имя>/Ext/Form/Module.bsl  (intermediate dir is
+//     SINGULAR "Form", not the plural "Forms" that triggers the .Форма. infix —
+//     so the key is FLAT: ОбщаяФорма.X.МодульФормы, no 5-segment expansion).
+//   - CommonCommand: CommonCommands/<имя>/Ext/CommandModule.bsl (flat).
+//   - DocumentJournals: DocumentJournals/<имя>/Ext/ManagerModule.bsl (flat).
+//
+// Extension-prefixed variants strip the 2-segment "Расширения/<ext>/" prefix and
+// re-prefix "ext.<ext>." around the same flat base key.
+func TestBslPathToModuleName_CommonFormsCommandsJournals(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		// Base CommonForm: real shape carries the singular "Form" dir between
+		// "Ext" and "Module.bsl". "Form" is NOT in subdirSegmentNames (only the
+		// plural "Forms" is), so no .Форма. infix — the key stays flat.
+		{"base common form",
+			"CommonForms/ФормаНастроек/Ext/Form/Module.bsl",
+			"ОбщаяФорма.ФормаНастроек.МодульФормы"},
+		// Base CommonCommand: no intermediate dir at all, flat ManagerModule-style.
+		{"base common command",
+			"CommonCommands/ОткрытьПочту/Ext/CommandModule.bsl",
+			"ОбщаяКоманда.ОткрытьПочту.МодульКоманды"},
+		// Base DocumentJournal manager module, flat.
+		{"base document journal manager module",
+			"DocumentJournals/Складской/Ext/ManagerModule.bsl",
+			"ЖурналДокументов.Складской.МодульМенеджера"},
+
+		// Extension CommonForm: ext.<ext>. prefix around the flat base key.
+		{"ext common form",
+			"Расширения/Доработки3D/CommonForms/ФормаНастроек/Ext/Form/Module.bsl",
+			"ext.Доработки3D.ОбщаяФорма.ФормаНастроек.МодульФормы"},
+		// Extension CommonCommand.
+		{"ext common command",
+			"Расширения/Доработки3D/CommonCommands/ОткрытьПочту/Ext/CommandModule.bsl",
+			"ext.Доработки3D.ОбщаяКоманда.ОткрытьПочту.МодульКоманды"},
+		// Extension DocumentJournal manager module.
+		{"ext document journal manager module",
+			"Расширения/TestExt/DocumentJournals/Складской/Ext/ManagerModule.bsl",
+			"ext.TestExt.ЖурналДокументов.Складской.МодульМенеджера"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := bslPathToModuleName(tt.path)
+			if got != tt.want {
+				t.Errorf("bslPathToModuleName(%q) = %q, want %q", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestBslPathToModuleName_ServiceKindsAndConfigModules locks the keys for the
+// five service object kinds that were MISSING from dumpDirNames (HTTPServices,
+// WebServices, SettingsStorages, FilterCriteria, Sequences) and for the
+// configuration's own modules under the root "Ext" directory.
+//
+// All six shapes were enumerated on a real demo Бухгалтерия dump (13243 .bsl):
+// HTTPServices 5, WebServices 16, SettingsStorages 22, FilterCriteria 3,
+// Sequences 5, and exactly four files directly under Ext.
+//
+// Two distinct defects are pinned here:
+//
+//  1. The missing dumpDirNames entry made baseConfigModuleName fall back to the
+//     raw English directory name (prefix = category), e.g.
+//     "FilterCriteria.ДокументыПоКонтрагенту.МодульМенеджера".
+//  2. For HTTPServices/WebServices the object's own module file is named
+//     Module.bsl, which moduleNameSuffixes maps to "МодульФормы". These kinds
+//     have no forms at all, so the suffix was wrong as well. The
+//     Module.bsl -> "Модуль" rule, previously pinned to CommonModules alone, now
+//     covers them.
+//
+// Russian names come from serviceKindEnToRu in subsystem_kinds.go, keyed by the
+// English SINGULAR (the dump directory is plural): HTTPService -> HTTPСервис,
+// WebService -> WebСервис, SettingsStorage -> ХранилищеНастроек,
+// FilterCriterion -> КритерийОтбора, Sequence -> Последовательность.
+func TestBslPathToModuleName_ServiceKindsAndConfigModules(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		// --- HTTP / Web services: prefix AND suffix were both wrong. ---
+		{"base http service module",
+			"HTTPServices/ЭДО/Ext/Module.bsl",
+			"HTTPСервис.ЭДО.Модуль"},
+		{"base web service module",
+			"WebServices/Exchange/Ext/Module.bsl",
+			"WebСервис.Exchange.Модуль"},
+
+		// --- Prefix-only defects. ---
+		{"base settings storage manager module",
+			"SettingsStorages/НастройкиНовостей/Ext/ManagerModule.bsl",
+			"ХранилищеНастроек.НастройкиНовостей.МодульМенеджера"},
+		{"base settings storage form module",
+			"SettingsStorages/НастройкиНовостей/Forms/Настройка/Ext/Form/Module.bsl",
+			"ХранилищеНастроек.НастройкиНовостей.Форма.Настройка.МодульФормы"},
+		{"base filter criterion manager module",
+			"FilterCriteria/ДокументыПоКонтрагенту/Ext/ManagerModule.bsl",
+			"КритерийОтбора.ДокументыПоКонтрагенту.МодульМенеджера"},
+		{"base sequence record set module",
+			"Sequences/ДокументыОрганизаций/Ext/RecordSetModule.bsl",
+			"Последовательность.ДокументыОрганизаций.МодульНабораЗаписей"},
+
+		// --- Configuration's own modules: "Ext" is NOT an object kind. ---
+		// Exactly these four files live directly under the dump root "Ext".
+		// The key keeps the generic three-slot <Вид>.<Имя>.<ТипМодуля> shape:
+		// the owner is the configuration itself, the module's own Russian name
+		// stands in the object-name slot, and the type is "Модуль" — the same
+		// type a common module gets for its own Module.bsl. Before the fix the
+		// file name landed in the object-name slot, so the key embedded a literal
+		// ".bsl" mid-key and repeated the name:
+		// "Ext.SessionModule.bsl.SessionModule".
+		{"config managed application module",
+			"Ext/ManagedApplicationModule.bsl",
+			"Конфигурация.МодульУправляемогоПриложения.Модуль"},
+		{"config session module",
+			"Ext/SessionModule.bsl",
+			"Конфигурация.МодульСеанса.Модуль"},
+		{"config external connection module",
+			"Ext/ExternalConnectionModule.bsl",
+			"Конфигурация.МодульВнешнегоСоединения.Модуль"},
+		{"config ordinary application module",
+			"Ext/OrdinaryApplicationModule.bsl",
+			"Конфигурация.МодульОбычногоПриложения.Модуль"},
+
+		// --- Same six shapes inside an extension subtree. ---
+		{"ext http service module",
+			"Расширения/МоёРасш/HTTPServices/Сервис/Ext/Module.bsl",
+			"ext.МоёРасш.HTTPСервис.Сервис.Модуль"},
+		{"ext web service module",
+			"Расширения/МоёРасш/WebServices/Обмен/Ext/Module.bsl",
+			"ext.МоёРасш.WebСервис.Обмен.Модуль"},
+		{"ext settings storage manager module",
+			"Расширения/TestExt/SettingsStorages/Настройки/Ext/ManagerModule.bsl",
+			"ext.TestExt.ХранилищеНастроек.Настройки.МодульМенеджера"},
+		{"ext filter criterion manager module",
+			"Расширения/TestExt/FilterCriteria/КритерийОтбора1/Ext/ManagerModule.bsl",
+			"ext.TestExt.КритерийОтбора.КритерийОтбора1.МодульМенеджера"},
+		{"ext sequence record set module",
+			"Расширения/TestExt/Sequences/Последовательность1/Ext/RecordSetModule.bsl",
+			"ext.TestExt.Последовательность.Последовательность1.МодульНабораЗаписей"},
+		// An extension root mirrors the configuration root, Ext directory
+		// included: the source tree of the bundled polling extension carries
+		// exactly Ext/ManagedApplicationModule.bsl next to its Configuration.xml.
+		{"ext managed application module",
+			"Расширения/MCP_Polling/Ext/ManagedApplicationModule.bsl",
+			"ext.MCP_Polling.Конфигурация.МодульУправляемогоПриложения.Модуль"},
+
+		// --- The Forms guard on the Module.bsl -> Модуль rule. ---
+		// Synthetic shapes: they pin the RULE, not an observed on-disk layout.
+		// A path passing through a plural "Forms" segment is a FORM module and
+		// must keep "МодульФормы" even for a kind covered by the plain-Module
+		// rule. This is the intent of the pre-existing !slices.Contains(parts,
+		// "Forms") guard, preserved when the rule stopped being CommonModules-only.
+		{"common module under Forms keeps form suffix",
+			"CommonModules/ОбщийМодуль1/Forms/Ф1/Ext/Module.bsl",
+			"ОбщийМодуль.ОбщийМодуль1.Форма.Ф1.МодульФормы"},
+		{"http service under Forms keeps form suffix",
+			"HTTPServices/ЭДО/Forms/Ф1/Ext/Module.bsl",
+			"HTTPСервис.ЭДО.Форма.Ф1.МодульФормы"},
+
+		// --- Regression controls: untouched by either change. ---
+		{"base common module unaffected",
+			"CommonModules/ОбщегоНазначения/Ext/Module.bsl",
+			"ОбщийМодуль.ОбщегоНазначения.Модуль"},
+		{"base catalog object module unaffected",
+			"Catalogs/Номенклатура/Ext/ObjectModule.bsl",
+			"Справочник.Номенклатура.МодульОбъекта"},
+		{"base document form module unaffected",
+			"Documents/Док/Forms/ФормаДок/Ext/Module.bsl",
+			"Документ.Док.Форма.ФормаДок.МодульФормы"},
+		// An unknown category still falls back to the raw English name. The fix
+		// narrows that fallback, it does not remove it. Styles used to be this
+		// example and is now a known kind; ExternalDataProcessors replaces it and is
+		// unknown on purpose, being a standalone root mdclass rather than a
+		// configuration child class.
+		{"unknown category still falls back",
+			"ExternalDataProcessors/Основной/Ext/Module.bsl",
+			"ExternalDataProcessors.Основной.МодульФормы"},
+		// Only the four known configuration modules get the Конфигурация key.
+		// Anything else directly under the root Ext keeps the old fallback, so
+		// an unexpected file is visibly odd instead of silently mislabelled.
+		{"unknown file under root Ext falls back",
+			"Ext/Неизвестный.bsl",
+			"Ext.Неизвестный.bsl.Неизвестный"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := bslPathToModuleName(tt.path)
+			if got != tt.want {
+				t.Errorf("bslPathToModuleName(%q) = %q, want %q", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestBslPathToModuleName_ExtensionsNoCollision proves two distinct extension
+// objects no longer collapse to the same key. The pre-fix logic keyed both as
+// "Расширения.<ext>.<suffix>", so an ext CommonModule and an ext DataProcessor
+// of the SAME extension (and even two objects of different kinds) overwrote each
+// other in the index. After the fix every object owns a distinct key.
+func TestBslPathToModuleName_ExtensionsNoCollision(t *testing.T) {
+	a := bslPathToModuleName("Расширения/TestExt/CommonModules/CM1/Ext/Module.bsl")
+	b := bslPathToModuleName("Расширения/TestExt/DataProcessors/DP1/Ext/ObjectModule.bsl")
+	if a == b {
+		t.Fatalf("two distinct ext objects collide on key %q", a)
+	}
+	if a != "ext.TestExt.ОбщийМодуль.CM1.Модуль" {
+		t.Errorf("ext CommonModule key = %q, want ext.TestExt.ОбщийМодуль.CM1.Модуль", a)
+	}
+	if b != "ext.TestExt.Обработка.DP1.МодульОбъекта" {
+		t.Errorf("ext DataProcessor key = %q, want ext.TestExt.Обработка.DP1.МодульОбъекта", b)
+	}
+
+	// Same property for the kinds added later. An HTTP service and a web service
+	// of the SAME extension bearing the SAME object name are distinct objects in
+	// 1C; while both directories were missing from dumpDirNames they produced
+	// distinct-but-English keys, and both file names are Module.bsl, so the
+	// prefix is the only thing keeping them apart. Pin that it does.
+	h := bslPathToModuleName("Расширения/TestExt/HTTPServices/Обмен/Ext/Module.bsl")
+	w := bslPathToModuleName("Расширения/TestExt/WebServices/Обмен/Ext/Module.bsl")
+	if h == w {
+		t.Fatalf("ext HTTP service and web service collide on key %q", h)
+	}
+	if h != "ext.TestExt.HTTPСервис.Обмен.Модуль" {
+		t.Errorf("ext HTTPService key = %q, want ext.TestExt.HTTPСервис.Обмен.Модуль", h)
+	}
+	if w != "ext.TestExt.WebСервис.Обмен.Модуль" {
+		t.Errorf("ext WebService key = %q, want ext.TestExt.WebСервис.Обмен.Модуль", w)
+	}
+
+	// The configuration modules of two different extensions must not collide
+	// either: the "ext.<ext>." prefix is what separates them, since the
+	// Конфигурация key names the module itself and is identical in every
+	// extension.
+	c1 := bslPathToModuleName("Расширения/TestExt/Ext/SessionModule.bsl")
+	c2 := bslPathToModuleName("Расширения/OtherExt/Ext/SessionModule.bsl")
+	if c1 == c2 {
+		t.Fatalf("session modules of two extensions collide on key %q", c1)
+	}
+	if c1 != "ext.TestExt.Конфигурация.МодульСеанса.Модуль" {
+		t.Errorf("ext session module key = %q, want ext.TestExt.Конфигурация.МодульСеанса.Модуль", c1)
+	}
+}
+
+func TestIndex_ModuleNames(t *testing.T) {
+	dir := t.TempDir()
+	mkBSLFile(t, dir, "Catalogs/Номенклатура/Ext/ObjectModule.bsl", "Процедура А()\nКонецПроцедуры\n")
+	mkBSLFile(t, dir, "Documents/Реализация/Ext/ManagerModule.bsl", "Процедура Б()\nКонецПроцедуры\n")
+
+	idx, err := NewIndex(dir, "", false)
+	if err != nil {
+		t.Fatalf("NewIndex: %v", err)
+	}
+	defer idx.Close()
+	waitReady(t, idx, 30*time.Second)
+
+	names := idx.ModuleNames()
+	want := []string{
+		"Справочник.Номенклатура.МодульОбъекта",
+		"Документ.Реализация.МодульМенеджера",
+	}
+	if len(names) != len(want) {
+		t.Fatalf("ModuleNames() returned %d names, want %d: %v", len(names), len(want), names)
+	}
+	for _, w := range want {
+		if !slices.Contains(names, w) {
+			t.Errorf("ModuleNames() missing %q, got: %v", w, names)
+		}
+	}
+
+	// Every returned name must be a valid GetContent key.
+	for _, name := range names {
+		if _, ok := idx.GetContent(name); !ok {
+			t.Errorf("ModuleNames() returned %q, but GetContent could not resolve it", name)
+		}
+	}
+}
+
+func TestIndex_ModuleNames_DefensiveCopy(t *testing.T) {
+	dir := t.TempDir()
+	mkBSLFile(t, dir, "Catalogs/Номенклатура/Ext/ObjectModule.bsl", "Процедура А()\nКонецПроцедуры\n")
+	mkBSLFile(t, dir, "Documents/Реализация/Ext/ManagerModule.bsl", "Процедура Б()\nКонецПроцедуры\n")
+
+	idx, err := NewIndex(dir, "", false)
+	if err != nil {
+		t.Fatalf("NewIndex: %v", err)
+	}
+	defer idx.Close()
+	waitReady(t, idx, 30*time.Second)
+
+	first := idx.ModuleNames()
+	if len(first) != 2 {
+		t.Fatalf("expected 2 names, got %d: %v", len(first), first)
+	}
+
+	// Mutating and sorting the returned slice must not affect the index.
+	slices.Sort(first)
+	first[0] = "ИЗМЕНЕНО"
+
+	second := idx.ModuleNames()
+	if slices.Contains(second, "ИЗМЕНЕНО") {
+		t.Error("mutating the returned slice leaked into the index")
+	}
+	if len(second) != 2 {
+		t.Errorf("expected index to still hold 2 names, got %d: %v", len(second), second)
+	}
+}
+
+func TestIndex_ModuleNames_EmptyIsNotNil(t *testing.T) {
+	dir := t.TempDir()
+	idx, err := NewIndex(dir, "", false)
+	if err != nil {
+		t.Fatalf("NewIndex: %v", err)
+	}
+	defer idx.Close()
+	waitReady(t, idx, 30*time.Second)
+
+	names := idx.ModuleNames()
+	if names == nil {
+		t.Error("ModuleNames() must return an empty slice, not nil, when nothing is indexed")
+	}
+	if len(names) != 0 {
+		t.Errorf("expected 0 names for an empty dump, got %d: %v", len(names), names)
+	}
+}
+
+func TestIndex_BuildError_NilAfterSuccess(t *testing.T) {
+	dir := t.TempDir()
+	mkBSLFile(t, dir, "Catalogs/Тест/Ext/ObjectModule.bsl", "Процедура Тест()\nКонецПроцедуры\n")
+
+	idx, err := NewIndex(dir, "", false)
+	if err != nil {
+		t.Fatalf("NewIndex: %v", err)
+	}
+	defer idx.Close()
+	waitReady(t, idx, 30*time.Second)
+
+	if got := idx.BuildError(); got != nil {
+		t.Errorf("BuildError() = %v, want nil after a successful build", got)
+	}
+	if !idx.Ready() {
+		t.Error("expected Ready() == true after a successful build")
+	}
+}
+
+func TestIndex_BuildError_ReportsRecordedError(t *testing.T) {
+	idx := &Index{}
+
+	// No error recorded yet.
+	if got := idx.BuildError(); got != nil {
+		t.Errorf("BuildError() = %v, want nil before any error is recorded", got)
+	}
+
+	// setBuildErr is the single mechanism the background build uses to record
+	// a failure (loadBSLFiles failure, shard error, manifest-fallback failure).
+	wantErr := errors.New("loading BSL files: boom")
+	idx.setBuildErr(wantErr)
+
+	got := idx.BuildError()
+	if got == nil {
+		t.Fatal("BuildError() = nil, want the recorded build error")
+	}
+	if got.Error() != wantErr.Error() {
+		t.Errorf("BuildError() = %q, want %q", got.Error(), wantErr.Error())
+	}
+
+	// The field is stable across repeated reads.
+	if again := idx.BuildError(); again == nil || again.Error() != wantErr.Error() {
+		t.Errorf("BuildError() not stable across reads: %v", again)
+	}
+
+	// A build that recorded an error is not Ready.
+	if idx.Ready() {
+		t.Error("expected Ready() == false for a build that recorded an error")
+	}
+}
+
+// TestLoadBSLFilesDeterministic verifies that the enumerate path produces a
+// stable, lexicographically sorted idx.names slice regardless of goroutine
+// scheduling (loadBSLFiles worker pool) or map iteration order
+// (loadFromManifestAndDiff manifest fast-path). This is the invariant that
+// downstream stages (cache key, chunking, vocabulary, TF-IDF) rely on for
+// reproducibility across runs on the same dump.
+func TestLoadBSLFilesDeterministic(t *testing.T) {
+	dumpDir := t.TempDir()
+
+	// Spread 20 modules across several categories and module types so the
+	// resulting names are diverse enough to expose any ordering bug.
+	// Names are intentionally NOT created in sorted order on disk.
+	specs := []struct {
+		path    string
+		content string
+	}{
+		{"Documents/Реализация/Ext/ObjectModule.bsl", "Процедура ОбработкаПроведения()\nКонецПроцедуры\n"},
+		{"Catalogs/Номенклатура/Ext/ObjectModule.bsl", "Процедура ПередЗаписью()\nКонецПроцедуры\n"},
+		{"Documents/Реализация/Ext/ManagerModule.bsl", "Функция ПолучитьШапку()\nВозврат Неопределено;\nКонецФункции\n"},
+		{"CommonModules/ОбщегоНазначения/Ext/Module.bsl", "Функция СтрокаПусто(Стр)\nВозврат Стр = \"\";\nКонецФункции\n"},
+		{"Catalogs/Контрагенты/Ext/ObjectModule.bsl", "Процедура ПриЗаписи()\nКонецПроцедуры\n"},
+		{"Reports/Продажи/Ext/ObjectModule.bsl", "Процедура ПриКомпоновкеРезультата()\nКонецПроцедуры\n"},
+		{"Documents/ПоступлениеТоваров/Ext/ObjectModule.bsl", "Процедура ОбработкаПроведения()\nКонецПроцедуры\n"},
+		{"InformationRegisters/Курсы/Ext/RecordSetModule.bsl", "Процедура ПередЗаписью()\nКонецПроцедуры\n"},
+		{"Catalogs/Сотрудники/Ext/ManagerModule.bsl", "Функция ПолучитьСотрудника()\nВозврат Неопределено;\nКонецФункции\n"},
+		{"Documents/Заказ/Forms/ФормаДокумента/Ext/Form/Module.bsl", "Процедура ПриОткрытии()\nКонецПроцедуры\n"},
+		{"Catalogs/Номенклатура/Forms/ФормаЭлемента/Ext/Form/Module.bsl", "Процедура ПриОткрытии()\nКонецПроцедуры\n"},
+		{"CommonModules/РаботаСФайлами/Ext/Module.bsl", "Функция ПрочитатьФайл(Имя)\nВозврат Неопределено;\nКонецФункции\n"},
+		{"Reports/Закупки/Ext/ObjectModule.bsl", "Процедура ПриКомпоновкеРезультата()\nКонецПроцедуры\n"},
+		{"AccumulationRegisters/ТоварыНаСкладах/Ext/RecordSetModule.bsl", "Процедура ПередЗаписью()\nКонецПроцедуры\n"},
+		{"Catalogs/Склады/Ext/ObjectModule.bsl", "Процедура ПередЗаписью()\nКонецПроцедуры\n"},
+		{"Documents/Оплата/Ext/ObjectModule.bsl", "Процедура ОбработкаПроведения()\nКонецПроцедуры\n"},
+		{"Catalogs/Валюты/Ext/ManagerModule.bsl", "Функция КурсВалюты()\nВозврат 1;\nКонецФункции\n"},
+		{"CommonModules/Сервер/Ext/Module.bsl", "Функция ВызовСервера()\nВозврат Истина;\nКонецФункции\n"},
+		{"Documents/Перемещение/Ext/ObjectModule.bsl", "Процедура ОбработкаПроведения()\nКонецПроцедуры\n"},
+		{"Catalogs/Партнеры/Ext/ObjectModule.bsl", "Процедура ПриЗаписи()\nКонецПроцедуры\n"},
+	}
+	for _, s := range specs {
+		mkBSLFile(t, dumpDir, s.path, s.content)
+	}
+
+	// Build the index 5 times against the SAME isolated cacheDir so the
+	// sequence exercises both code paths:
+	//   - run 0: no cache -> full buildShards -> loadBSLFiles (worker pool)
+	//   - runs 1..4: cache present -> loadFromManifestAndDiff (map iter)
+	// Both paths must yield the same lexicographically sorted slice; this is
+	// what guarantees reproducibility for cache keys and downstream stages.
+	cacheDir := t.TempDir()
+	const runs = 5
+	captured := make([][]string, 0, runs)
+	for i := range runs {
+		idx, err := NewIndex(dumpDir, cacheDir, false)
+		if err != nil {
+			t.Fatalf("run %d: NewIndex: %v", i, err)
+		}
+		waitReady(t, idx, 30*time.Second)
+
+		got := idx.ModuleNames()
+		if err := idx.Close(); err != nil {
+			t.Fatalf("run %d: Close: %v", i, err)
+		}
+
+		if len(got) != len(specs) {
+			t.Fatalf("run %d: expected %d modules, got %d", i, len(specs), len(got))
+		}
+
+		// Invariant: names must be lexicographically sorted on both paths.
+		if !slices.IsSorted(got) {
+			t.Errorf("run %d: idx.names is not sorted lexicographically: %v", i, got)
+		}
+
+		captured = append(captured, got)
+	}
+
+	// All runs must produce identical orderings.
+	for i := 1; i < runs; i++ {
+		if !slices.Equal(captured[0], captured[i]) {
+			t.Errorf("idx.names differs between run 0 and run %d\nrun 0: %v\nrun %d: %v",
+				i, captured[0], i, captured[i])
+		}
 	}
 }

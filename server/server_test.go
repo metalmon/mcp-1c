@@ -92,12 +92,12 @@ func TestToolsetsAffectRegisteredTools(t *testing.T) {
 
 	client := onec.NewClient("http://localhost:8080/mcp", "", "")
 
-	allTools := listToolNames(t, New("test", client, nil))
+	allTools := toolNameSet(t, New("test", client, nil))
 	if !allTools["get_metadata_tree"] || !allTools["read_counterparties"] {
 		t.Fatalf("expected both developer and business tools, got %v", allTools)
 	}
 
-	developerTools := listToolNames(t, New("test", client, nil, Options{
+	developerTools := toolNameSet(t, New("test", client, nil, Options{
 		Toolset: ToolsetDeveloper,
 		Profile: "generic",
 	}))
@@ -108,7 +108,7 @@ func TestToolsetsAffectRegisteredTools(t *testing.T) {
 		t.Fatalf("did not expect business tools in developer toolset, got %v", developerTools)
 	}
 
-	businessTools := listToolNames(t, New("test", client, nil, Options{
+	businessTools := toolNameSet(t, New("test", client, nil, Options{
 		Toolset: ToolsetBusiness,
 		Profile: "generic",
 	}))
@@ -139,7 +139,7 @@ func TestBusinessToolsetRespectsProfileSupport(t *testing.T) {
 
 	client := onec.NewClient("http://localhost:8080/mcp", "", "")
 
-	supported := listToolNames(t, New("test", client, nil, Options{
+	supported := toolNameSet(t, New("test", client, nil, Options{
 		Toolset: ToolsetBusiness,
 		Profile: "buh_3_0",
 	}))
@@ -153,7 +153,7 @@ func TestBusinessToolsetRespectsProfileSupport(t *testing.T) {
 		t.Fatalf("expected business tools on supported profile, got %v", supported)
 	}
 
-	unsupported := listToolNames(t, New("test", client, nil, Options{
+	unsupported := toolNameSet(t, New("test", client, nil, Options{
 		Toolset: ToolsetBusiness,
 		Profile: "unknown",
 	}))
@@ -247,7 +247,7 @@ func TestBusinessReadOnlyModeDoesNotRegisterWriteTools(t *testing.T) {
 	t.Parallel()
 
 	client := onec.NewClient("http://localhost:8080/mcp", "", "")
-	toolsList := listToolNames(t, New("test", client, nil, Options{
+	toolsList := toolNameSet(t, New("test", client, nil, Options{
 		Toolset: ToolsetBusiness,
 		Profile: "generic",
 		Access:  AccessReadOnly,
@@ -283,7 +283,7 @@ func TestBusinessReadOnlyModeDoesNotRegisterWriteTools(t *testing.T) {
 	}
 }
 
-func listToolNames(t *testing.T, srv *mcp.Server) map[string]bool {
+func toolNameSet(t *testing.T, srv *mcp.Server) map[string]bool {
 	t.Helper()
 
 	ctx := context.Background()

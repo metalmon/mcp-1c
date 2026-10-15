@@ -52,11 +52,11 @@ func ReadOrganizationsTool() *mcp.Tool {
 
 // NewReadOrganizationsHandler returns a ToolHandler that reads organizations.
 func NewReadOrganizationsHandler(client *onec.Client) mcp.ToolHandler {
-	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return WithToolErrors(headingOrganizationsRead, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var input readOrganizationsInput
 		if req.Params.Arguments != nil {
 			if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
-				return nil, fmt.Errorf("parsing input: %w", err)
+				return nil, InvalidParams(fmt.Errorf("parsing input: %w", err))
 			}
 		}
 
@@ -76,7 +76,7 @@ func NewReadOrganizationsHandler(client *onec.Client) mcp.ToolHandler {
 			return nil, fmt.Errorf("reading organizations from 1C: %w", err)
 		}
 		return textResult(formatOrganizationsReadResult(&result)), nil
-	}
+	})
 }
 
 func formatOrganizationsReadResult(r *onec.ReadOrganizationsResult) string {
@@ -100,4 +100,3 @@ func formatOrganizationsReadResult(r *onec.ReadOrganizationsResult) string {
 	}
 	return b.String()
 }
-

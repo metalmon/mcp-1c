@@ -52,7 +52,7 @@ func TestSearchCodeTool(t *testing.T) {
 	if !ok {
 		t.Fatal("expected properties in schema")
 	}
-	for _, field := range []string{"query", "limit", "category", "module", "mode"} {
+	for _, field := range []string{"query", "limit", "namespace", "category", "module", "mode"} {
 		if _, ok := props[field]; !ok {
 			t.Errorf("missing property %q in schema", field)
 		}
@@ -80,15 +80,13 @@ func TestFormatSearchResult(t *testing.T) {
 	for _, want := range []string{
 		"Результаты поиска",
 		"Контрагент",
-		"2 совпадений",
+		"модулей с совпадениями: 2",
 		"Справочник.Контрагенты.МодульОбъекта",
 		"строка 42",
-		"score: 0.847",
 		"```bsl",
 		"ПередЗаписью",
 		"Документ.РеализацияТоваров.МодульОбъекта",
 		"строка 15",
-		"score: 0.512",
 		"ПолучитьКонтрагента",
 	} {
 		if !strings.Contains(text, want) {
@@ -97,20 +95,82 @@ func TestFormatSearchResult(t *testing.T) {
 	}
 }
 
+// TestFormatSearchResult_ExactMode.
+//
+// THE CONTROL THIS TEST USED TO CARRY IS GONE, and it was removed rather than
+// weakened. It asserted that exact mode prints no «score:» and then proved the
+// assertion non-vacuous by showing the SAME match printing one in smart mode. No
+// mode prints a score any more — the label was removed because it made the row
+// shape depend on which retrieval path filled Match.Score — so the old control
+// asserts something false and could only have been made to pass by deleting it and
+// leaving the first half standing on nothing.
+//
+// What replaces it is a control that still fires: the renderer produced a row, so
+// the silence is the label being absent and not the answer being empty. The
+// stronger statement, that the row is now byte-identical across all three modes,
+// is TestTheRowShapeDoesNotDependOnTheMode in search_row_shape_test.go.
 func TestFormatSearchResult_ExactMode(t *testing.T) {
 	matches := []dump.Match{
 		{
 			Module:  "Модуль.Тест",
 			Line:    1,
 			Context: "Тест",
+			// A NON-ZERO score, deliberately. With Score left at its zero value a
+			// renderer that still gated on `m.Score > 0` would fall silent for that
+			// reason alone and this test would pass without touching the mode.
+			Score: 0.847,
 		},
 	}
 
 	text := FormatSearchResult(matches, 1, "Тест", dump.SearchModeExact, nil)
 
-	// Exact mode should NOT contain "score:".
-	if strings.Contains(text, "score:") {
-		t.Errorf("exact mode should not display score, got:\n%s", text)
+	if strings.Contains(text, "score") {
+		t.Errorf("exact mode still mentions a score, got:\n%s", text)
+	}
+
+	// CONTROL: a row really was rendered.
+	if !strings.Contains(text, "### ") || !strings.Contains(text, "Модуль.Тест") {
+		t.Fatalf("control failed: no row was rendered, so the absence above measures nothing:\n%s", text)
+	}
+}
+
+// TestFormatSearchResult_LineNotLocated covers a match the search could not
+// pin to a line (Line == 0). The rendered result must neither claim "строка 0"
+// nor open a code block, because an empty or borrowed block reads as the matched
+// source. Modules that do carry a line keep rendering as before.
+func TestFormatSearchResult_LineNotLocated(t *testing.T) {
+	matches := []dump.Match{
+		{
+			Module: "Справочник.Контрагенты.МодульОбъекта",
+			Line:   0,
+			Score:  0.731,
+		},
+		{
+			Module:  "Документ.РеализацияТоваров.МодульОбъекта",
+			Line:    15,
+			Context: "Функция ПолучитьКонтрагента()\n    Возврат Контрагент;\nКонецФункции",
+			Score:   0.512,
+		},
+	}
+
+	text := FormatSearchResult(matches, 2, "ПолучитьКонтрагента()", dump.SearchModeSmart, nil)
+
+	if strings.Contains(text, "строка 0") {
+		t.Errorf("a match with no located line must not be rendered as 'строка 0', got:\n%s", text)
+	}
+	if !strings.Contains(text, "строка не определена") {
+		t.Errorf("expected the unlocated match to say 'строка не определена', got:\n%s", text)
+	}
+	if !strings.Contains(text, "Справочник.Контрагенты.МодульОбъекта") {
+		t.Errorf("the unlocated match must still be listed, got:\n%s", text)
+	}
+
+	// Exactly one code block: the one belonging to the match that has a line.
+	if got := strings.Count(text, "```bsl"); got != 1 {
+		t.Errorf("expected exactly 1 bsl block (only the located match), got %d:\n%s", got, text)
+	}
+	if !strings.Contains(text, "строка 15") || !strings.Contains(text, "ПолучитьКонтрагента") {
+		t.Errorf("the located match must render unchanged, got:\n%s", text)
 	}
 }
 
@@ -120,8 +180,8 @@ func TestFormatSearchResult_Empty(t *testing.T) {
 	if !strings.Contains(text, "Ничего не найдено") {
 		t.Errorf("expected 'Ничего не найдено' in text, got:\n%s", text)
 	}
-	if !strings.Contains(text, "0 совпадений") {
-		t.Errorf("expected '0 совпадений' in text, got:\n%s", text)
+	if !strings.Contains(text, "модулей с совпадениями: 0") {
+		t.Errorf("expected 'модулей с совпадениями: 0' in text, got:\n%s", text)
 	}
 }
 
@@ -136,7 +196,7 @@ func TestFormatSearchResult_Truncated(t *testing.T) {
 
 	text := FormatSearchResult(matches, 150, "Тест", dump.SearchModeSmart, nil)
 
-	if !strings.Contains(text, "Показано 1 из 150 совпадений") {
+	if !strings.Contains(text, "Показано 1 из 150 модулей") {
 		t.Errorf("expected truncation message, got:\n%s", text)
 	}
 	if !strings.Contains(text, "увеличьте limit") {
@@ -231,7 +291,8 @@ func TestNewSearchCodeHandler_WithFilters(t *testing.T) {
 	}
 
 	tc := result.Content[0].(*mcp.TextContent)
-	if !strings.Contains(tc.Text, "1 совпадений") {
+	// The call above asked for mode exact, whose total counts LINES.
+	if !strings.Contains(tc.Text, "строк с совпадениями: 1") {
 		t.Errorf("expected 1 match with category filter, got:\n%s", tc.Text)
 	}
 	if !strings.Contains(tc.Text, "Справочник") {

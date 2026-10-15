@@ -21,8 +21,7 @@ func ValidateQueryTool() *mcp.Tool {
 		Title: "Проверка синтаксиса запроса",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 		Description: "Проверить синтаксис запроса 1С без выполнения, найдёт ошибки в ВЫБРАТЬ/SELECT. " +
-			"Используй перед execute_query чтобы валидировать запрос. " +
-			"Всегда вызывай перед execute_query для проверки синтаксиса.",
+			"Используй, когда текст запроса нужно проверить, не выполняя его.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
@@ -38,10 +37,10 @@ func ValidateQueryTool() *mcp.Tool {
 
 // NewValidateQueryHandler returns a ToolHandler that validates a 1C query syntax.
 func NewValidateQueryHandler(client *onec.Client) mcp.ToolHandler {
-	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return WithToolErrors(headingValidateQuery, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var input validateQueryInput
 		if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
-			return nil, fmt.Errorf("parsing input: %w", err)
+			return nil, InvalidParams(argumentDecodeError(err))
 		}
 		if input.Query == "" {
 			return nil, fmt.Errorf("query is required")
@@ -54,7 +53,7 @@ func NewValidateQueryHandler(client *onec.Client) mcp.ToolHandler {
 		}
 
 		return textResult(formatValidateResult(&result)), nil
-	}
+	})
 }
 
 func formatValidateResult(r *onec.ValidateQueryResult) string {

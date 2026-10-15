@@ -78,13 +78,16 @@ func TestReadNomenclatureHandler_InvalidRefError(t *testing.T) {
 	defer srv.Close()
 
 	handler := NewReadNomenclatureHandler(onec.NewClient(srv.URL, "", ""))
-	_, err := handler(context.Background(), &mcp.CallToolRequest{
+	res, err := handler(context.Background(), &mcp.CallToolRequest{
 		Params: &mcp.CallToolParamsRaw{
 			Name:      "read_nomenclature",
 			Arguments: []byte(`{"ref":"not-a-uuid"}`),
 		},
 	})
-	if err == nil {
-		t.Fatal("expected error for invalid ref")
+	if err != nil {
+		t.Fatalf("the refusal must reach the model as a tool result, not a protocol error: %v", err)
+	}
+	if text := renderedText(t, res); !strings.Contains(text, "ref must be valid UUID") {
+		t.Fatalf("expected error for invalid ref, got: %s", text)
 	}
 }

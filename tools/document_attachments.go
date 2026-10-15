@@ -55,10 +55,10 @@ func AttachFileToDocumentTool() *mcp.Tool {
 }
 
 func NewAttachFileToDocumentHandler(client *onec.Client) mcp.ToolHandler {
-	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return WithToolErrors(headingAttachmentAttach, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var input attachFileToDocumentInput
 		if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
-			return nil, fmt.Errorf("parsing input: %w", err)
+			return nil, InvalidParams(fmt.Errorf("parsing input: %w", err))
 		}
 		if strings.TrimSpace(input.DocumentRef) == "" {
 			return nil, fmt.Errorf("document_ref is required")
@@ -83,7 +83,7 @@ func NewAttachFileToDocumentHandler(client *onec.Client) mcp.ToolHandler {
 			return nil, fmt.Errorf("1C returned unsuccessful attach result")
 		}
 		return textResult(formatAttachFileToDocumentResult(&result)), nil
-	}
+	})
 }
 
 func formatAttachFileToDocumentResult(r *onec.AttachFileToDocumentResult) string {

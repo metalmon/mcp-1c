@@ -34,6 +34,32 @@ var metadataTypes = []MetadataType{
 // directory name (e.g. "Catalog" -> "Catalogs"). Derived from metadataTypes.
 var objectTypeToDumpDir map[string]string
 
+// categoryNames is the SET of strings this package ever puts in the category slot
+// of a key: every Russian display name in dumpDirNames, plus the configuration's
+// own configModulePrefix.
+//
+// It exists because "ext.<Имя>." cannot be stripped off a key on faith. A dump root
+// may hold a directory literally named «ext» (the customer whose tree started all
+// of this had one), an unknown top-level directory becomes the category slot
+// verbatim, and such a key really can reach five segments. What settles whether the
+// two leading segments may be consumed is the segment AFTER them: only a category
+// this package emits can stand there. See splitModuleKey.
+//
+// IT NO LONGER DECIDES THE NAMESPACE, only the category. Membership of the
+// extension namespace is the "ext." prefix (extKeyPrefix), which is the same test
+// every consumer of a module id already applies. While this set decided both, a
+// producer whose ids are four segments long — the live .cfe ingest — was outside
+// the namespace entirely, and its modules were dropped from every extensions-only
+// search without a word. The two questions are asked separately now.
+//
+// DERIVED, never typed. A kind added to metadataTypes joins this set on the same
+// line it joins dumpDirNames, so a new kind cannot silently stop having its
+// category derived after an "ext." prefix. It is populated at the END of init
+// below, after every entry has been added, which is why it is not built anywhere
+// else in the package: init order across files would decide whether it was
+// complete.
+var categoryNames map[string]struct{}
+
 // dumpDirNames maps plural English dump directory name to Russian display
 // name (e.g. "Catalogs" -> "Справочник"). Derived from metadataTypes.
 //
@@ -53,4 +79,141 @@ func init() {
 	// CommonModules has no corresponding singular object type. It only
 	// appears as a dump directory, so we add it to dumpDirNames directly.
 	dumpDirNames["CommonModules"] = "ОбщийМодуль"
+
+	// CommonForms / CommonCommands are Common-typed metadata: like
+	// CommonModules they have no singular object type used in tool input, so
+	// they are added to dumpDirNames directly. Without them the indexer emitted
+	// raw-English-prefix keys (e.g. "CommonForms.X.МодульФормы") that no
+	// resolver ever queries. On-disk these subtrees never contain a plural
+	// "Forms"/"Commands" segment, so the keys stay FLAT (no .Форма./.Команда.
+	// infix): "ОбщаяФорма.X.МодульФормы", "ОбщаяКоманда.X.МодульКоманды".
+	dumpDirNames["CommonForms"] = "ОбщаяФорма"
+	dumpDirNames["CommonCommands"] = "ОбщаяКоманда"
+
+	// DocumentJournals: same missing-prefix root cause. The Russian singular
+	// "ЖурналДокументов" is the canonical NameRu for DocumentJournal (verified
+	// against the metadata type table). Kept on its own line so it can be
+	// dropped trivially if a future dump shape ever proves otherwise.
+	dumpDirNames["DocumentJournals"] = "ЖурналДокументов"
+
+	// Five service kinds with the same missing-prefix root cause. Each was
+	// enumerated on a real demo Бухгалтерия dump (13243 .bsl) as a top-level
+	// directory holding modules while having no dumpDirNames entry, so the
+	// indexer emitted raw-English-prefix keys such as
+	// "SettingsStorages.НастройкиНовостей.МодульМенеджера".
+	//
+	// Every Russian singular below is taken verbatim from serviceKindEnToRu in
+	// subsystem_kinds.go, keyed by the English SINGULAR (the dump directory is
+	// plural). They are added here rather than to metadataTypes because that
+	// slice also feeds objectTypeToDumpDir, the tool-input type -> form-directory
+	// map used by formparser; these kinds are not form-bearing tool inputs and
+	// must not silently appear there.
+	//
+	// One line each, so any single kind can be dropped if a future dump shape
+	// ever contradicts it.
+	dumpDirNames["HTTPServices"] = "HTTPСервис"            // 5 modules measured
+	dumpDirNames["WebServices"] = "WebСервис"              // 16 modules measured
+	dumpDirNames["SettingsStorages"] = "ХранилищеНастроек" // 22 modules measured
+	dumpDirNames["FilterCriteria"] = "КритерийОтбора"      // 3 modules measured
+	dumpDirNames["Sequences"] = "Последовательность"       // 5 modules measured
+
+	// The eighteen kinds a real configuration DECLARES that the table still did
+	// not know. Measured: the Configuration.xml of dumps/dump_2 lists 41 distinct
+	// kinds in <ChildObjects>, the table held 25, and all eighteen directories
+	// below exist on disk in that same dump.
+	//
+	// EVERY ONE OF THEM HOLDS ZERO .bsl FILES, and saying so is the point rather
+	// than an aside. That is why no module census could ever have found them: a
+	// role, a style, a subsystem, a language, a picture and a defined type have no
+	// module by construction, so the fixture behind guard 1 in
+	// module_key_guard_test.go — which records directories caught holding modules —
+	// is structurally blind to them.
+	//
+	// They are added because dumpDirNames is no longer only a display table. It is
+	// what dumpRootMarker reads to decide whether a path segment can be the top of a
+	// dump, so a kind missing here is a shape that cannot be recognised as a dump
+	// root and cannot be anchored past a wrapper. The entry earns its place through
+	// recognition, not through any key it changes.
+	//
+	// NO RUSSIAN NAME HERE WAS WRITTEN FROM KNOWLEDGE. Each is the string this
+	// package already uses for that kind in serviceKindEnToRu (subsystem_kinds.go),
+	// which is the table that canonicalises subsystem membership against the live
+	// platform full name. TestDumpDirRussianNamesMatchTheKindTables asserts that
+	// correspondence for all 41 kinds, so a name typed here rather than copied
+	// fails the build.
+	dumpDirNames["CommandGroups"] = "ГруппаКоманд"
+	dumpDirNames["CommonAttributes"] = "ОбщийРеквизит"
+	dumpDirNames["CommonPictures"] = "ОбщаяКартинка"
+	dumpDirNames["CommonTemplates"] = "ОбщийМакет"
+	dumpDirNames["DefinedTypes"] = "ОпределяемыйТип"
+	dumpDirNames["DocumentNumerators"] = "НумераторДокументов"
+	dumpDirNames["EventSubscriptions"] = "ПодпискаНаСобытие"
+	dumpDirNames["FunctionalOptions"] = "ФункциональнаяОпция"
+	dumpDirNames["FunctionalOptionsParameters"] = "ПараметрФункциональныхОпций"
+	dumpDirNames["Languages"] = "Язык"
+	dumpDirNames["Roles"] = "Роль"
+	dumpDirNames["ScheduledJobs"] = "РегламентноеЗадание"
+	dumpDirNames["SessionParameters"] = "ПараметрСеанса"
+	dumpDirNames["StyleItems"] = "ЭлементСтиля"
+	dumpDirNames["Styles"] = "Стиль"
+	dumpDirNames["Subsystems"] = "Подсистема"
+	dumpDirNames["WSReferences"] = "WSСсылка"
+	dumpDirNames["XDTOPackages"] = "ПакетXDTO"
+
+	// Bots stands apart, and the difference is stated rather than hidden.
+	//
+	// It is a genuine configuration child class, but it is absent from the ERP
+	// manifest measured above, so it is not in the fixture.
+	//
+	// IT IS READ ALL THE SAME, and the wording here used to say otherwise. The
+	// platform type reference carries a page titled «ОбъектМетаданных: Бот»,
+	// snapshotted in testdata/metadata_kind_properties.txt, and the singular below
+	// is that page's own word rather than the collection plural «Боты» with its
+	// ending taken off. TestBotsRussianNameIsCitedNotDerived is where that source
+	// is asserted; the plural still appears in
+	// testdata/config_metadata_properties.txt and is still the wrong register for
+	// this table, whose values are singular.
+	//
+	// The DIRECTORY name is the half that is still a convention rather than an
+	// observation: no dump on this machine holds a Bots directory and dumps/dump_2's
+	// Configuration.xml declares no such kind, so the plural English spelling below
+	// follows the same rule every other entry uses and nothing has confirmed it.
+	//
+	// ExternalDataProcessors is deliberately NOT here. It is not a configuration
+	// child class at all but a standalone root mdclass, and its projects carry no
+	// Configuration.mdo; admitting it would make dumpRootMarker accept a directory
+	// that can never be the top of a configuration dump.
+	dumpDirNames["Bots"] = "Бот"
+
+	//
+	// СервисИнтеграции and WebSocketКлиент are cited from the platform type
+	// reference, whose «ОбъектМетаданных: <Вид>» property tables are snapshotted in
+	// testdata/metadata_kind_properties.txt. Both pages give the singular directly,
+	// so neither name is a plural with its ending taken off.
+	//
+	// ВнешнийИсточникДанных is not a new name at all: it is a copy of the string
+	// serviceKindEnToRu (subsystem_kinds.go) already maps ExternalDataSource to, and
+	// the test asserts the two agree rather than trusting the copy.
+	//
+	// A NARROWER DECISION ABOUT THE SAME TWO KINDS IS REVERSED HERE, not overlooked.
+	// The tree used to hold that an unconfirmed directory name was reason enough to
+	// keep the entry out. The Bots entry already settled that question the other
+	// way, and these three now follow it.
+	//
+	// The integration service gets a dump directory here and NOTHING in
+	// serviceKindEnToRu, where the universe-classification pin still forbids it.
+	// The two tables answer different questions, and only that one feeds the
+	// orphans universe.
+	dumpDirNames["IntegrationServices"] = "СервисИнтеграции"
+	dumpDirNames["WebSocketClients"] = "WebSocketКлиент"
+	dumpDirNames["ExternalDataSources"] = "ВнешнийИсточникДанных"
+
+	// LAST, and the position is the point: every entry above has to be in place
+	// before the set is taken, and a table completed after this line would leave
+	// its kinds unrecognised behind an "ext." prefix.
+	categoryNames = make(map[string]struct{}, len(dumpDirNames)+1)
+	for _, ru := range dumpDirNames {
+		categoryNames[ru] = struct{}{}
+	}
+	categoryNames[configModulePrefix] = struct{}{}
 }

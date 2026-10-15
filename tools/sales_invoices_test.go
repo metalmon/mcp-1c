@@ -100,27 +100,33 @@ func TestCreateSalesInvoiceHandler(t *testing.T) {
 
 func TestCreateSalesInvoiceHandler_PostWithoutItemsFails(t *testing.T) {
 	handler := NewCreateSalesInvoiceHandler(onec.NewClient("http://127.0.0.1:1", "", ""))
-	_, err := handler(context.Background(), &mcp.CallToolRequest{
+	res, err := handler(context.Background(), &mcp.CallToolRequest{
 		Params: &mcp.CallToolParamsRaw{
 			Name:      "create_sales_invoice",
 			Arguments: []byte(`{"organization_ref":"a","counterparty_ref":"b","post":true}`),
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "items are required when post=true") {
-		t.Fatalf("expected items validation error, got: %v", err)
+	if err != nil {
+		t.Fatalf("the refusal must reach the model as a tool result, not a protocol error: %v", err)
+	}
+	if text := renderedText(t, res); !strings.Contains(text, "items are required when post=true") {
+		t.Fatalf("expected items validation error, got: %s", text)
 	}
 }
 
 func TestCreateSalesInvoiceHandler_PostWithInvalidItemFails(t *testing.T) {
 	handler := NewCreateSalesInvoiceHandler(onec.NewClient("http://127.0.0.1:1", "", ""))
-	_, err := handler(context.Background(), &mcp.CallToolRequest{
+	res, err := handler(context.Background(), &mcp.CallToolRequest{
 		Params: &mcp.CallToolParamsRaw{
 			Name:      "create_sales_invoice",
 			Arguments: []byte(`{"organization_ref":"a","counterparty_ref":"b","post":true,"items":[{"nomenclature_ref":"n1","quantity":0,"price":100}]}`),
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "quantity must be > 0 when post=true") {
-		t.Fatalf("expected quantity validation error, got: %v", err)
+	if err != nil {
+		t.Fatalf("the refusal must reach the model as a tool result, not a protocol error: %v", err)
+	}
+	if text := renderedText(t, res); !strings.Contains(text, "quantity must be > 0 when post=true") {
+		t.Fatalf("expected quantity validation error, got: %s", text)
 	}
 }
 
@@ -194,26 +200,32 @@ func TestUpdateSalesInvoiceHandler(t *testing.T) {
 
 func TestUpdateSalesInvoiceHandler_RequiresRef(t *testing.T) {
 	handler := NewUpdateSalesInvoiceHandler(onec.NewClient("http://127.0.0.1:1", "", ""))
-	_, err := handler(context.Background(), &mcp.CallToolRequest{
+	res, err := handler(context.Background(), &mcp.CallToolRequest{
 		Params: &mcp.CallToolParamsRaw{
 			Name:      "update_sales_invoice",
 			Arguments: []byte(`{"comment":"updated"}`),
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "ref is required") {
-		t.Fatalf("expected ref validation error, got: %v", err)
+	if err != nil {
+		t.Fatalf("the refusal must reach the model as a tool result, not a protocol error: %v", err)
+	}
+	if text := renderedText(t, res); !strings.Contains(text, "ref is required") {
+		t.Fatalf("expected ref validation error, got: %s", text)
 	}
 }
 
 func TestUpdateSalesInvoiceHandler_PostWithInvalidItemFails(t *testing.T) {
 	handler := NewUpdateSalesInvoiceHandler(onec.NewClient("http://127.0.0.1:1", "", ""))
-	_, err := handler(context.Background(), &mcp.CallToolRequest{
+	res, err := handler(context.Background(), &mcp.CallToolRequest{
 		Params: &mcp.CallToolParamsRaw{
 			Name:      "update_sales_invoice",
 			Arguments: []byte(`{"ref":"cccccccc-cccc-cccc-cccc-cccccccccccc","post":true,"items":[{"nomenclature_ref":"n1","quantity":0,"price":100}]}`),
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "quantity must be > 0 when post=true") {
-		t.Fatalf("expected quantity validation error, got: %v", err)
+	if err != nil {
+		t.Fatalf("the refusal must reach the model as a tool result, not a protocol error: %v", err)
+	}
+	if text := renderedText(t, res); !strings.Contains(text, "quantity must be > 0 when post=true") {
+		t.Fatalf("expected quantity validation error, got: %s", text)
 	}
 }

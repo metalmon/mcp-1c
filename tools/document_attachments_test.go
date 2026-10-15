@@ -73,27 +73,33 @@ func TestAttachFileToDocumentHandler(t *testing.T) {
 
 func TestAttachFileToDocumentHandler_Validation(t *testing.T) {
 	handler := NewAttachFileToDocumentHandler(onec.NewClient("http://127.0.0.1:1", "", ""))
-	_, err := handler(context.Background(), &mcp.CallToolRequest{
+	res, err := handler(context.Background(), &mcp.CallToolRequest{
 		Params: &mcp.CallToolParamsRaw{
 			Name:      "attach_file_to_document",
 			Arguments: []byte(`{"file_name":"x.pdf","content_base64":"AA=="}`),
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "document_ref is required") {
-		t.Fatalf("expected validation error, got: %v", err)
+	if err != nil {
+		t.Fatalf("the refusal must reach the model as a tool result, not a protocol error: %v", err)
+	}
+	if text := renderedText(t, res); !strings.Contains(text, "document_ref is required") {
+		t.Fatalf("expected validation error, got: %s", text)
 	}
 }
 
 func TestAttachFileToDocumentHandler_RequiresPayload(t *testing.T) {
 	handler := NewAttachFileToDocumentHandler(onec.NewClient("http://127.0.0.1:1", "", ""))
-	_, err := handler(context.Background(), &mcp.CallToolRequest{
+	res, err := handler(context.Background(), &mcp.CallToolRequest{
 		Params: &mcp.CallToolParamsRaw{
 			Name:      "attach_file_to_document",
 			Arguments: []byte(`{"document_ref":"Документ.СчетНаОплатуПокупателю:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}`),
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "file_name and content_base64") {
-		t.Fatalf("expected payload validation error, got: %v", err)
+	if err != nil {
+		t.Fatalf("the refusal must reach the model as a tool result, not a protocol error: %v", err)
+	}
+	if text := renderedText(t, res); !strings.Contains(text, "file_name and content_base64") {
+		t.Fatalf("expected payload validation error, got: %s", text)
 	}
 }
 
@@ -118,7 +124,7 @@ func TestAttachFileToDocumentHandler_StripsWhitespaceInsideBase64(t *testing.T) 
 	handler := NewAttachFileToDocumentHandler(onec.NewClient(srv.URL, "", ""))
 	_, err := handler(context.Background(), &mcp.CallToolRequest{
 		Params: &mcp.CallToolParamsRaw{
-			Name: "attach_file_to_document",
+			Name:      "attach_file_to_document",
 			Arguments: []byte(`{"document_ref":"Документ.РеализацияТоваровУслуг:bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","file_name":"x.pdf","content_base64":"QUJ\nDRA=="}`),
 		},
 	})

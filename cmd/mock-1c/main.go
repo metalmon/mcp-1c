@@ -67,28 +67,29 @@ var (
 		"РегистрыБухгалтерии": {
 			"Хозрасчетный",
 		},
-		"РегистрыРасчета":          {},
-		"ПланыСчетов":              {"Хозрасчетный"},
-		"ПланыВидовХарактеристик":  {"ВидыСубконтоХозрасчетные"},
-		"ПланыВидовРасчета":        {},
-		"ПланыОбмена":              {"ОбменБухгалтерия"},
-		"БизнесПроцессы":           {},
-		"Задачи":                   {},
-		"ЖурналыДокументов":        {"ЖурналОпераций"},
-		"Константы":                {"ВалютаРегламентированногоУчета", "ОсновнаяОрганизация"},
+		"РегистрыРасчета":         {},
+		"ПланыСчетов":             {"Хозрасчетный"},
+		"ПланыВидовХарактеристик": {"ВидыСубконтоХозрасчетные"},
+		"ПланыВидовРасчета":       {},
+		"ПланыОбмена":             {"ОбменБухгалтерия"},
+		"БизнесПроцессы":          {},
+		"Задачи":                  {},
+		"ОпределяемыеТипы":        {"ЗначениеДоступа", "ЛюбаяСсылкаИлиСтрока", "СоставнойЧерезОпределяемый"},
+		"ЖурналыДокументов":       {"ЖурналОпераций"},
+		"Константы":               {"ВалютаРегламентированногоУчета", "ОсновнаяОрганизация"},
 		"ОбщиеМодули": {
 			"ОбщегоНазначения",
 			"ОбщегоНазначенияКлиентСервер",
 			"УправлениеПечатью",
 		},
-		"ОбщиеФормы":        {"ФормаВопроса", "ФормаПредупреждения"},
-		"ОбщиеКоманды":      {},
-		"ОбщиеМакеты":       {"МакетПечати"},
-		"Роли":              {"Администратор", "Бухгалтер", "ТолькоПросмотр"},
-		"Подсистемы":        {"Бухгалтерия", "Зарплата", "Администрирование"},
-		"РегулярныеЗадания": {"ОбновлениеКурсовВалют"},
-		"ВебСервисы":        {},
-		"HTTPСервисы":       {"MCPService"},
+		"ОбщиеФормы":          {"ФормаВопроса", "ФормаПредупреждения"},
+		"ОбщиеКоманды":        {},
+		"ОбщиеМакеты":         {"МакетПечати"},
+		"Роли":                {"Администратор", "Бухгалтер", "ТолькоПросмотр"},
+		"Подсистемы":          {"Бухгалтерия", "Зарплата", "Администрирование"},
+		"РегламентныеЗадания": {"ОбновлениеКурсовВалют"},
+		"WebСервисы":          {},
+		"HTTPСервисы":         {"MCPService"},
 	}
 
 	objects = map[objectKey]onec.ObjectStructure{
@@ -172,8 +173,157 @@ var (
 			},
 			Attributes: []onec.Attribute{},
 		},
+		// Types are TECHNICAL metadata names as the extension now emits them for
+		// reference members: Метаданные.НайтиПоТипу(Тип).ПолноеИмя() -> "Справочник.X"
+		// (not the localized synonym Строка(Тип) used to yield). Primitives stay
+		// as Строка(Тип), e.g. "Строка"/"Число".
+		{typ: "DefinedType", name: "ЗначениеДоступа"}: {
+			Name:    "ЗначениеДоступа",
+			Synonym: "Значение доступа",
+			Types:   []string{"Справочник.Пользователи", "Справочник.ВнешниеПользователи"},
+		},
+		// Composition mixing a reference type with a primitive (Строка): community
+		// review coverage for issue #33 — primitives must render alongside refs.
+		{typ: "DefinedType", name: "ЛюбаяСсылкаИлиСтрока"}: {
+			Name:    "ЛюбаяСсылкаИлиСтрока",
+			Synonym: "Любая ссылка или строка",
+			Types:   []string{"Справочник.Номенклатура", "Строка"},
+		},
+		// Composition that references ANOTHER DefinedType. This offline fixture only
+		// exercises Go handling of whatever the "types" array contains; the real
+		// platform .Типы() nested-expansion behavior is out of scope (real-1C gate).
+		{typ: "DefinedType", name: "СоставнойЧерезОпределяемый"}: {
+			Name:    "СоставнойЧерезОпределяемый",
+			Synonym: "Составной через определяемый тип",
+			Types:   []string{"ОпределяемыйТип.ЗначениеДоступа", "Справочник.Организации"},
+		},
+		// Subsystem structure (issue #36 Phase 1). content = direct members
+		// (full metadata names); subsystems = nested child tree (>=2 levels here
+		// via Розница -> Касса) so the renderer's indentation path is exercised.
+		{typ: "Subsystem", name: "Продажи"}: {
+			Name:    "Продажи",
+			Synonym: "Продажи",
+			Content: []string{"Справочник.Контрагенты", "Документ.РеализацияТоваровУслуг"},
+			Subsystems: []onec.SubsystemNode{
+				{
+					Name:     "Розница",
+					FullName: "Подсистема.Продажи.Подсистема.Розница",
+					Synonym:  "Розница",
+					Content:  []string{"Справочник.Склады"},
+					Subsystems: []onec.SubsystemNode{
+						{
+							Name:     "Касса",
+							FullName: "Подсистема.Продажи.Подсистема.Розница.Подсистема.Касса",
+							Synonym:  "Рабочее место кассира",
+							Content:  []string{"Документ.КассовыйОрдер"},
+						},
+					},
+				},
+				{
+					Name:     "Опт",
+					FullName: "Подсистема.Продажи.Подсистема.Опт",
+					Synonym:  "Оптовые продажи",
+					Content:  []string{"Документ.СчетНаОплатуПокупателю"},
+				},
+			},
+		},
+		// Empty subsystem: no members, no children -> renders neither the
+		// "## Состав" nor the "## Подсистемы" block (edge-case coverage).
+		{typ: "Subsystem", name: "ПустаяПодсистема"}: {
+			Name:    "ПустаяПодсистема",
+			Synonym: "Пустая подсистема",
+		},
+		// Subsystem carrying non-fatal tree-builder warnings (BUG-3b): the offline
+		// fixture proves the warnings channel round-trips into onec.ObjectStructure so
+		// get_object_structure can surface a degraded (partial) membership view when
+		// the 1C tree builder truncated a subsystem's Состав or child recursion.
+		{typ: "Subsystem", name: "ПродажиСПредупреждениями"}: {
+			Name:    "ПродажиСПредупреждениями",
+			Synonym: "Продажи с предупреждениями",
+			Content: []string{"Документ.РеализацияТоваровУслуг"},
+			Warnings: []string{
+				"Подсистема Розница: Ошибка доступа к составу",
+			},
+		},
 	}
 
+	// subsystemForest backs GET /subsystems (issue #36 Phase 2-4). It exercises
+	// every analyze_subsystems computation and edge case with no live 1C:
+	//   - Справочник.Контрагенты: in Продажи AND Продажи>Розница (same root)
+	//   - Документ.РеализацияТоваровУслуг: in Продажи AND Финансы (different roots)
+	//   - Справочник.Организации, Справочник.Валюты, РегистрСведений.КурсыВалют,
+	//     РегистрНакопления.ТоварыНаСкладах: applied but in no subsystem (orphans)
+	//   - Справочник.НоменклатураПрисоединенныеФайлы: orphaned noise (filtered out)
+	//   - Broadened universe: service kinds in allObjects too. ОбщийМодуль.УправлениеПечатью
+	//     is a member of Продажи (NOT an orphan); the rest (roles, constants, defined
+	//     type, common modules, forms, templates, HTTP service, journal, scheduled job)
+	//     belong to no subsystem and must now surface as orphans.
+	subsystemForest = onec.SubsystemForest{
+		Subsystems: []onec.SubsystemNode{
+			{
+				Name:     "Продажи",
+				FullName: "Подсистема.Продажи",
+				Synonym:  "Продажи",
+				Content:  []string{"Справочник.Контрагенты", "Справочник.Номенклатура", "Документ.РеализацияТоваровУслуг", "ОбщийМодуль.УправлениеПечатью"},
+				Subsystems: []onec.SubsystemNode{
+					{
+						Name:     "Розница",
+						FullName: "Подсистема.Продажи.Подсистема.Розница",
+						Synonym:  "Розница",
+						Content:  []string{"Справочник.Контрагенты", "Справочник.Склады"},
+					},
+					{
+						Name:     "Опт",
+						FullName: "Подсистема.Продажи.Подсистема.Опт",
+						Synonym:  "Оптовые продажи",
+						Content:  []string{"Документ.СчетНаОплатуПокупателю"},
+					},
+				},
+			},
+			{
+				Name:     "Закупки",
+				FullName: "Подсистема.Закупки",
+				Synonym:  "Закупки",
+				Content:  []string{"Документ.ПоступлениеТоваровУслуг"},
+			},
+			{
+				Name:     "Финансы",
+				FullName: "Подсистема.Финансы",
+				Synonym:  "Финансы",
+				Content:  []string{"Документ.РеализацияТоваровУслуг", "Документ.ПлатежноеПоручение"},
+			},
+		},
+		AllObjects: []string{
+			"Справочник.Контрагенты",
+			"Справочник.Номенклатура",
+			"Справочник.Организации",
+			"Справочник.Склады",
+			"Справочник.Валюты",
+			"Документ.РеализацияТоваровУслуг",
+			"Документ.ПоступлениеТоваровУслуг",
+			"Документ.СчетНаОплатуПокупателю",
+			"Документ.ПлатежноеПоручение",
+			"РегистрСведений.КурсыВалют",
+			"РегистрНакопления.ТоварыНаСкладах",
+			"Справочник.НоменклатураПрисоединенныеФайлы",
+			// Service / extra kinds (broadened universe). Mirrors the metadata map above.
+			// УправлениеПечатью is a member of Продажи (not an orphan); the rest are orphans.
+			"ОбщийМодуль.ОбщегоНазначения",
+			"ОбщийМодуль.ОбщегоНазначенияКлиентСервер",
+			"ОбщийМодуль.УправлениеПечатью",
+			"ОбщаяФорма.ФормаВопроса",
+			"ОбщийМакет.МакетПечати",
+			"Роль.Администратор",
+			"Роль.Бухгалтер",
+			"Роль.ТолькоПросмотр",
+			"Константа.ВалютаРегламентированногоУчета",
+			"Константа.ОсновнаяОрганизация",
+			"ОпределяемыйТип.ЗначениеДоступа",
+			"ЖурналДокументов.ЖурналОпераций",
+			"РегламентноеЗадание.ОбновлениеКурсовВалют",
+			"HTTPСервис.MCPService",
+		},
+	}
 )
 
 // isSelectQuery checks if a query starts with SELECT/ВЫБРАТЬ keyword.
@@ -194,6 +344,11 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 func handleMetadata(w http.ResponseWriter, r *http.Request) {
 	log.Printf("%s %s", r.Method, r.URL.Path)
 	writeJSON(w, http.StatusOK, metadata)
+}
+
+func handleSubsystems(w http.ResponseWriter, r *http.Request) {
+	log.Printf("%s %s", r.Method, r.URL.Path)
+	writeJSON(w, http.StatusOK, subsystemForest)
 }
 
 func handleObject(w http.ResponseWriter, r *http.Request) {
@@ -300,6 +455,29 @@ func handleValidateQuery(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// knownEventNames is this stand-in's answer to the list ЖурналРегистрацииPOST
+// asks the base for before it applies an event filter.
+//
+// It is WIDER than the set of names the records below actually carry, and that
+// is the point: a name in here with nothing logged under it answers an empty
+// log, a name outside it is refused. Collapse the two and «no records» stops
+// meaning anything.
+var knownEventNames = map[string]bool{
+	"_$Session$_.Start":  true,
+	"_$Session$_.Finish": true,
+	"_$Access$_.Access":  true,
+	"_$Data$_.Update":    true,
+	"_$Data$_.Post":      true,
+}
+
+// knownUsers stands for ПользователиИнформационнойБазы, which the shipped
+// handler searches before it filters: a name it does not find is refused with
+// that name in the text.
+var knownUsers = map[string]bool{
+	"Администратор": true,
+	"Бухгалтер":     true,
+}
+
 func handleEventLog(w http.ResponseWriter, r *http.Request) {
 	log.Printf("%s %s", r.Method, r.URL.Path)
 	if r.Method != http.MethodPost {
@@ -308,19 +486,28 @@ func handleEventLog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Level string `json:"level"`
-		Limit int    `json:"limit"`
+		Level string   `json:"level"`
+		Event []string `json:"event"`
+		User  string   `json:"user"`
+		Limit int      `json:"limit"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
 		return
 	}
 
+	// ONE record carries event_presentation and two do not, and that is the shape
+	// rather than an omission. «Сеанс. Начало» is the platform's own phrase for
+	// _$Session$_.Start: the standard library pairs the two in the common module
+	// ЗащитаПерсональныхДанных, next to Аутентификация and Завершение. No such
+	// pairing was found for _$Data$_.Update or _$Data$_.Post, so this stand in
+	// prints no phrase for them rather than inventing one, and a caller reading
+	// them sees exactly what a record with no representation looks like.
 	events := []map[string]any{
 		{
 			"date":     "2026-03-07T14:30:00",
 			"level":    "Ошибка",
-			"event":    "Данные.Запись",
+			"event":    "_$Data$_.Update",
 			"user":     "Администратор",
 			"metadata": "Документ.РеализацияТоваровУслуг",
 			"comment":  "Ошибка при записи: поле Контрагент не заполнено",
@@ -328,17 +515,79 @@ func handleEventLog(w http.ResponseWriter, r *http.Request) {
 		{
 			"date":     "2026-03-07T14:25:00",
 			"level":    "Предупреждение",
-			"event":    "Данные.Проведение",
+			"event":    "_$Data$_.Post",
 			"user":     "Бухгалтер",
 			"metadata": "Документ.ПоступлениеТоваровУслуг",
 			"comment":  "Отрицательный остаток по регистру ТоварыНаСкладах",
 		},
 		{
-			"date":  "2026-03-07T14:00:00",
-			"level": "Информация",
-			"event": "Сеанс.Начало",
-			"user":  "Администратор",
+			"date":               "2026-03-07T14:00:00",
+			"level":              "Информация",
+			"event":              "_$Session$_.Start",
+			"event_presentation": "Сеанс. Начало",
+			"user":               "Администратор",
 		},
+	}
+
+	// The event filter is applied, not ignored. A stand-in that answered the same
+	// records whatever it was asked would let a filter go missing between here and
+	// the caller without any test noticing.
+	//
+	// A VALUE THE BASE DOES NOT LIST IS REFUSED, not answered with an empty log,
+	// because those are answers to two different questions: «nothing of this kind
+	// was logged» and «there is no such kind». knownEventNames stands for the list
+	// ЖурналРегистрацииPOST asks the base for, and it is deliberately wider than
+	// the records below so both answers remain producible.
+	if req.Event != nil {
+		if len(req.Event) == 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "event is empty; leave it out to read the log without an event filter",
+			})
+			return
+		}
+		for _, want := range req.Event {
+			if strings.TrimSpace(want) == "" {
+				writeJSON(w, http.StatusBadRequest, map[string]string{
+					"error": "event must hold event names, and one of the values in it is not a name",
+				})
+				return
+			}
+			if !knownEventNames[want] {
+				writeJSON(w, http.StatusBadRequest, map[string]string{
+					"error": "unknown event: " + want + ". This base lists no event under that name",
+				})
+				return
+			}
+		}
+		var kept []map[string]any
+		for _, e := range events {
+			for _, want := range req.Event {
+				if e["event"] == want {
+					kept = append(kept, e)
+					break
+				}
+			}
+		}
+		events = kept
+	}
+
+	// The user filter, for the same reason as the event filter above: it was
+	// accepted and never read, so every call carrying one got the whole log back,
+	// which is exactly what a filter lost in transit looks like.
+	if req.User != "" {
+		if !knownUsers[req.User] {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "unknown infobase user: " + req.User,
+			})
+			return
+		}
+		var filtered []map[string]any
+		for _, e := range events {
+			if e["user"] == req.User {
+				filtered = append(filtered, e)
+			}
+		}
+		events = filtered
 	}
 
 	if req.Level != "" {
@@ -351,18 +600,24 @@ func handleEventLog(w http.ResponseWriter, r *http.Request) {
 		events = filtered
 	}
 
-	total := len(events)
 	limit := req.Limit
 	if limit <= 0 {
 		limit = 50
 	}
-	if limit < total {
+	if limit < len(events) {
 		events = events[:limit]
 	}
 
+	// total is counted AFTER the limit, because the shipped handler counts the
+	// records of the answer it is sending rather than the records the filter
+	// matched. Counting the matches here would print a number the product never
+	// prints, and a reader comparing the two would take the product for broken.
+	if events == nil {
+		events = []map[string]any{}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"events": events,
-		"total":  total,
+		"total":  len(events),
 	})
 }
 
@@ -379,7 +634,12 @@ func handleConfiguration(w http.ResponseWriter, r *http.Request) {
 
 func handleVersion(w http.ResponseWriter, r *http.Request) {
 	log.Printf("%s %s", r.Method, r.URL.Path)
-	writeJSON(w, http.StatusOK, map[string]string{"version": "0.3.0"})
+	// The number the shipped extension answers with. It is written out here
+	// rather than read, because this stand-in is a binary that runs anywhere and
+	// the module it stands in for is not beside it. The copy is held to the
+	// original by TestHandleVersion_AnswersWhatTheExtensionAnswers, which reads
+	// the module and fails as soon as the two differ.
+	writeJSON(w, http.StatusOK, map[string]string{"version": "0.5.0"})
 }
 
 func main() {
@@ -391,6 +651,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mcp/metadata", handleMetadata)
+	mux.HandleFunc("/mcp/subsystems", handleSubsystems)
 	mux.HandleFunc("/mcp/object/", handleObject)
 	mux.HandleFunc("/mcp/query", handleQuery)
 

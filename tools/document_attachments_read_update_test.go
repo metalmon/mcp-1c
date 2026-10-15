@@ -150,13 +150,16 @@ func TestUpdateDocumentAttachmentMetadataHandler(t *testing.T) {
 
 func TestUpdateDocumentAttachmentMetadataHandler_RequiresField(t *testing.T) {
 	handler := NewUpdateDocumentAttachmentMetadataHandler(onec.NewClient("http://127.0.0.1:1", "", ""))
-	_, err := handler(context.Background(), &mcp.CallToolRequest{
+	res, err := handler(context.Background(), &mcp.CallToolRequest{
 		Params: &mcp.CallToolParamsRaw{
 			Name:      "update_document_attachment_metadata",
 			Arguments: []byte(`{"attachment_ref":"Справочник.РеализацияТоваровУслугПрисоединенныеФайлы:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}`),
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "at least one field is required") {
-		t.Fatalf("expected metadata validation error, got: %v", err)
+	if err != nil {
+		t.Fatalf("the refusal must reach the model as a tool result, not a protocol error: %v", err)
+	}
+	if text := renderedText(t, res); !strings.Contains(text, "at least one field is required") {
+		t.Fatalf("expected metadata validation error, got: %s", text)
 	}
 }

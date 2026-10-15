@@ -52,11 +52,11 @@ func ReadContractsTool() *mcp.Tool {
 
 // NewReadContractsHandler returns a ToolHandler that reads contracts.
 func NewReadContractsHandler(client *onec.Client) mcp.ToolHandler {
-	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return WithToolErrors(headingContractsRead, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var input readContractsInput
 		if req.Params.Arguments != nil {
 			if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
-				return nil, fmt.Errorf("parsing input: %w", err)
+				return nil, InvalidParams(fmt.Errorf("parsing input: %w", err))
 			}
 		}
 
@@ -76,7 +76,7 @@ func NewReadContractsHandler(client *onec.Client) mcp.ToolHandler {
 			return nil, fmt.Errorf("reading contracts from 1C: %w", err)
 		}
 		return textResult(formatContractsReadResult(&result)), nil
-	}
+	})
 }
 
 func formatContractsReadResult(r *onec.ReadContractsResult) string {
@@ -98,4 +98,3 @@ func formatContractsReadResult(r *onec.ReadContractsResult) string {
 	}
 	return b.String()
 }
-

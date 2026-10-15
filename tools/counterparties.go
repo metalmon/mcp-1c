@@ -59,11 +59,11 @@ func ReadCounterpartiesTool() *mcp.Tool {
 
 // NewReadCounterpartiesHandler returns a ToolHandler that reads counterparties via query endpoint.
 func NewReadCounterpartiesHandler(client *onec.Client) mcp.ToolHandler {
-	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return WithToolErrors(headingCounterpartiesRead, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var input readCounterpartiesInput
 		if req.Params.Arguments != nil {
 			if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
-				return nil, fmt.Errorf("parsing input: %w", err)
+				return nil, InvalidParams(fmt.Errorf("parsing input: %w", err))
 			}
 		}
 
@@ -84,7 +84,7 @@ func NewReadCounterpartiesHandler(client *onec.Client) mcp.ToolHandler {
 		}
 
 		return textResult(formatCounterpartiesReadResult(&result)), nil
-	}
+	})
 }
 
 // CreateCounterpartyTool returns the MCP tool definition for create_counterparty.
@@ -110,10 +110,10 @@ func CreateCounterpartyTool() *mcp.Tool {
 
 // NewCreateCounterpartyHandler returns a ToolHandler that creates a counterparty.
 func NewCreateCounterpartyHandler(client *onec.Client) mcp.ToolHandler {
-	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return WithToolErrors(headingCounterpartyCreate, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var input createCounterpartyInput
 		if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
-			return nil, fmt.Errorf("parsing input: %w", err)
+			return nil, InvalidParams(fmt.Errorf("parsing input: %w", err))
 		}
 		if strings.TrimSpace(input.Name) == "" ||
 			strings.TrimSpace(input.INN) == "" ||
@@ -137,7 +137,7 @@ func NewCreateCounterpartyHandler(client *onec.Client) mcp.ToolHandler {
 		}
 
 		return textResult(formatCreateCounterpartyResult(&result)), nil
-	}
+	})
 }
 
 func formatCounterpartiesReadResult(r *onec.ReadCounterpartiesResult) string {

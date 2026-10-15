@@ -29,6 +29,7 @@ func mock1CHandler() http.Handler {
 		"РегистрыБухгалтерии":     {},
 		"ПланыСчетов":             {"Хозрасчетный"},
 		"ПланыВидовХарактеристик": {"ВидыСубконтоХозрасчетные"},
+		"ОпределяемыеТипы":        {"ЗначениеДоступа"},
 		"ПланыОбмена":             {"ОбменБухгалтерия"},
 		"ЖурналыДокументов":       {"ЖурналОпераций"},
 		"Константы":               {"ОсновнаяОрганизация"},
@@ -67,6 +68,65 @@ func mock1CHandler() http.Handler {
 				{Name: "Количество", Synonym: "Количество", Type: "Число"},
 			},
 		},
+		"DefinedType/ЗначениеДоступа": {
+			Name:    "ЗначениеДоступа",
+			Synonym: "Значение доступа",
+			Types:   []string{"Справочник.Пользователи", "Справочник.ВнешниеПользователи"},
+		},
+		"Subsystem/Продажи": {
+			Name:    "Продажи",
+			Synonym: "Продажи",
+			Content: []string{"Справочник.Контрагенты", "Документ.РеализацияТоваровУслуг"},
+			Subsystems: []onec.SubsystemNode{
+				{
+					Name:     "Розница",
+					FullName: "Подсистема.Продажи.Подсистема.Розница",
+					Synonym:  "Розница",
+					Content:  []string{"Справочник.Склады"},
+					Subsystems: []onec.SubsystemNode{
+						{
+							Name:     "Касса",
+							FullName: "Подсистема.Продажи.Подсистема.Розница.Подсистема.Касса",
+							Synonym:  "Рабочее место кассира",
+							Content:  []string{"Документ.КассовыйОрдер"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Subsystem forest for the analyze_subsystems tool. Контрагенты sits in
+	// Продажи and its child Розница (same root); РеализацияТоваровУслуг sits in
+	// Продажи and Финансы (different roots, a cross-branch intersection);
+	// Номенклатура and КурсыВалют are applied but orphaned.
+	forest := onec.SubsystemForest{
+		Subsystems: []onec.SubsystemNode{
+			{
+				Name:     "Продажи",
+				FullName: "Подсистема.Продажи",
+				Content:  []string{"Справочник.Контрагенты", "Документ.РеализацияТоваровУслуг"},
+				Subsystems: []onec.SubsystemNode{
+					{
+						Name:     "Розница",
+						FullName: "Подсистема.Продажи.Подсистема.Розница",
+						Content:  []string{"Справочник.Контрагенты", "Справочник.Склады"},
+					},
+				},
+			},
+			{
+				Name:     "Финансы",
+				FullName: "Подсистема.Финансы",
+				Content:  []string{"Документ.РеализацияТоваровУслуг"},
+			},
+		},
+		AllObjects: []string{
+			"Справочник.Контрагенты",
+			"Справочник.Номенклатура",
+			"Справочник.Склады",
+			"Документ.РеализацияТоваровУслуг",
+			"РегистрСведений.КурсыВалют",
+		},
 	}
 
 	mux := http.NewServeMux()
@@ -74,6 +134,11 @@ func mock1CHandler() http.Handler {
 	mux.HandleFunc("/metadata", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		json.NewEncoder(w).Encode(metadata)
+	})
+
+	mux.HandleFunc("/subsystems", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(forest)
 	})
 
 	mux.HandleFunc("/object/", func(w http.ResponseWriter, r *http.Request) {
@@ -125,25 +190,54 @@ func mock1CHandler() http.Handler {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
+		// The event filter is APPLIED here rather than ignored, because a fixture
+		// that answers the same records whatever it is asked cannot tell a filter
+		// that arrived from one that was dropped on the way.
+		//
+		// The one representation here is the platform's own: the standard library
+		// pairs _$Session$_.Start with «Сеанс. Начало» in the common module
+		// ЗащитаПерсональныхДанных, next to Аутентификация and Завершение. The
+		// other record carries none, which is what a record whose representation
+		// the base does not supply looks like.
+		var req struct {
+			Event []string `json:"event"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+
+		events := []map[string]any{
+			{
+				"date":     "2026-03-07T10:00:00",
+				"level":    "Ошибка",
+				"event":    "_$Data$_.Update",
+				"user":     "Администратор",
+				"metadata": "Документ.РеализацияТоваровУслуг",
+				"comment":  "Ошибка при записи документа",
+			},
+			{
+				"date":               "2026-03-07T09:30:00",
+				"level":              "Информация",
+				"event":              "_$Session$_.Start",
+				"event_presentation": "Сеанс. Начало",
+				"user":               "Бухгалтер",
+			},
+		}
+		if len(req.Event) > 0 {
+			var kept []map[string]any
+			for _, e := range events {
+				for _, want := range req.Event {
+					if e["event"] == want {
+						kept = append(kept, e)
+						break
+					}
+				}
+			}
+			events = kept
+		}
+
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		json.NewEncoder(w).Encode(map[string]any{
-			"events": []map[string]any{
-				{
-					"date":     "2026-03-07T10:00:00",
-					"level":    "Ошибка",
-					"event":    "Данные.Запись",
-					"user":     "Администратор",
-					"metadata": "Документ.РеализацияТоваровУслуг",
-					"comment":  "Ошибка при записи документа",
-				},
-				{
-					"date":  "2026-03-07T09:30:00",
-					"level": "Информация",
-					"event": "Сеанс.Начало",
-					"user":  "Бухгалтер",
-				},
-			},
-			"total": 2,
+			"events": events,
+			"total":  len(events),
 		})
 	})
 
@@ -198,7 +292,7 @@ func mock1CHandler() http.Handler {
 		})
 	})
 	mux.HandleFunc("/document-attachments", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
+		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
@@ -219,7 +313,7 @@ func mock1CHandler() http.Handler {
 		})
 	})
 	mux.HandleFunc("/document-attachment-content", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
+		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
@@ -318,6 +412,224 @@ func setupIntegrationWithOptions(t *testing.T, options Options) (*mcp.ClientSess
 	return session, cleanup
 }
 
+// connectSession wires an already-built server to an in-memory MCP client session.
+// extraCleanup releases whatever the caller built before the server (mock, dump).
+func connectSession(t *testing.T, srv *mcp.Server, extraCleanup func()) (*mcp.ClientSession, func()) {
+	t.Helper()
+	ctx := context.Background()
+	ct, st := mcp.NewInMemoryTransports()
+	if _, err := srv.Connect(ctx, st, nil); err != nil {
+		extraCleanup()
+		t.Fatalf("server connect: %v", err)
+	}
+	mcpClient := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "1.0"}, nil)
+	session, err := mcpClient.Connect(ctx, ct, nil)
+	if err != nil {
+		extraCleanup()
+		t.Fatalf("client connect: %v", err)
+	}
+	return session, func() { session.Close(); extraCleanup() }
+}
+
+// setupIntegrationNoDump builds a server with NO offline dump, so analyze_subsystems
+// and object_structure(Subsystem) take the live 1C HTTP path (nil offline source).
+// This is the "without a dump, behavior unchanged (nil == live)" scenario.
+func setupIntegrationNoDump(t *testing.T) (*mcp.ClientSession, func()) {
+	t.Helper()
+	mock := httptest.NewServer(mock1CHandler())
+	client := onec.NewClient(mock.URL, "", "")
+	srv := New("test", client, nil)
+	return connectSession(t, srv, mock.Close)
+}
+
+// setupIntegrationSubsystemDump builds a server whose dump has a real Subsystems/
+// tree plus applied object XMLs, so analyze_subsystems and object_structure(Subsystem)
+// answer OFFLINE from the dump. The dump carries a unique marker object
+// (Справочник.МаркерТолькоВДампе) absent from the mock, and deliberately OMITS the
+// mock-only objects (Номенклатура, КурсыВалют, Касса), so an accidental live call is
+// detectable in the output.
+func setupIntegrationSubsystemDump(t *testing.T) (*mcp.ClientSession, func()) {
+	t.Helper()
+	mock := httptest.NewServer(mock1CHandler())
+	client := onec.NewClient(mock.URL, "", "")
+
+	dumpDir := t.TempDir()
+	// Subsystem tree (Hierarchical / Root layout).
+	mkBSL(t, dumpDir, "Subsystems/Продажи.xml", subsystemFileBody("Продажи", "Document.РеализацияТоваров", "Catalog.Контрагенты"))
+	mkBSL(t, dumpDir, "Subsystems/Продажи/Subsystems/Розница.xml", subsystemFileBody("Розница", "Catalog.Склады"))
+	mkBSL(t, dumpDir, "Subsystems/Финансы.xml", subsystemFileBody("Финансы", "Document.РеализацияТоваров"))
+	// Applied object universe (Root layout).
+	mkBSL(t, dumpDir, "Documents/РеализацияТоваров.xml", metaObjectBody("РеализацияТоваров"))
+	mkBSL(t, dumpDir, "Catalogs/Контрагенты.xml", metaObjectBody("Контрагенты"))
+	mkBSL(t, dumpDir, "Catalogs/Склады.xml", metaObjectBody("Склады"))
+	mkBSL(t, dumpDir, "Catalogs/МаркерТолькоВДампе.xml", metaObjectBody("МаркерТолькоВДампе"))
+	// A common module so the dump index has a .bsl module to index.
+	mkBSL(t, dumpDir, "CommonModules/ОбщегоНазначения/Ext/Module.bsl", "Процедура Пример() Экспорт\nКонецПроцедуры\n")
+
+	dumpIndex, err := dump.NewIndex(dumpDir, "", false)
+	if err != nil {
+		mock.Close()
+		t.Fatalf("NewIndex: %v", err)
+	}
+	deadline := time.After(30 * time.Second)
+	for !dumpIndex.Ready() {
+		select {
+		case <-deadline:
+			dumpIndex.Close()
+			mock.Close()
+			t.Fatal("timed out waiting for dump index to become ready")
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	srv := New("test", client, dumpIndex)
+	return connectSession(t, srv, func() { dumpIndex.Close(); mock.Close() })
+}
+
+// subsystemFileBody is a Subsystem XML file with a Name and optional Content members.
+func subsystemFileBody(name string, content ...string) string {
+	items := ""
+	for _, c := range content {
+		items += "      <Item>" + c + "</Item>\n"
+	}
+	return `<?xml version="1.0" encoding="UTF-8"?>
+<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses">
+  <Subsystem>
+    <Properties>
+      <Name>` + name + `</Name>
+      <Content>
+` + items + `      </Content>
+    </Properties>
+  </Subsystem>
+</MetaDataObject>
+`
+}
+
+// metaObjectBody is a minimal applied-object XML file (only existence matters to the
+// universe enumerator, which never parses it).
+func metaObjectBody(name string) string {
+	return `<?xml version="1.0" encoding="UTF-8"?>
+<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses">
+  <Properties><Name>` + name + `</Name></Properties>
+</MetaDataObject>
+`
+}
+
+// TestIntegration_AnalyzeSubsystems_FromDump proves analyze_subsystems answers
+// entirely from the offline dump (tree / orphans / containing / intersections) and
+// never contacts the live extension when a dump is present.
+func TestIntegration_AnalyzeSubsystems_FromDump(t *testing.T) {
+	session, cleanup := setupIntegrationSubsystemDump(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// orphans: the dump-only marker is applied but in no subsystem, so it appears;
+	// distributed objects do not; mock-only objects prove the live path was NOT used.
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "analyze_subsystems",
+		Arguments: map[string]any{"action": "orphans"},
+	})
+	if err != nil {
+		t.Fatalf("orphans CallTool error: %v", err)
+	}
+	text := res.Content[0].(*mcp.TextContent).Text
+	if !strings.Contains(text, "Справочник.МаркерТолькоВДампе") {
+		t.Errorf("orphans: expected the dump-only marker object, got:\n%s", text)
+	}
+	for _, distributed := range []string{"Справочник.Контрагенты", "Документ.РеализацияТоваров", "Справочник.Склады"} {
+		if strings.Contains(text, distributed) {
+			t.Errorf("orphans: distributed object %q wrongly listed:\n%s", distributed, text)
+		}
+	}
+	for _, mockOnly := range []string{"Номенклатура", "КурсыВалют"} {
+		if strings.Contains(text, mockOnly) {
+			t.Errorf("orphans leaked mock-only %q -> the live path was used, not the dump:\n%s", mockOnly, text)
+		}
+	}
+
+	// containing: РеализацияТоваров is in Продажи and Финансы (two distinct roots).
+	res, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "analyze_subsystems",
+		Arguments: map[string]any{"action": "containing", "object": "РеализацияТоваров"},
+	})
+	if err != nil {
+		t.Fatalf("containing CallTool error: %v", err)
+	}
+	text = res.Content[0].(*mcp.TextContent).Text
+	for _, want := range []string{"Документ.РеализацияТоваров", "Продажи", "Финансы"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("containing: expected %q, got:\n%s", want, text)
+		}
+	}
+
+	// intersections cross-branch: only РеализацияТоваров spans distinct roots;
+	// Контрагенты (single root) is excluded.
+	res, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "analyze_subsystems",
+		Arguments: map[string]any{"action": "intersections", "cross_branch_only": true},
+	})
+	if err != nil {
+		t.Fatalf("intersections CallTool error: %v", err)
+	}
+	text = res.Content[0].(*mcp.TextContent).Text
+	if !strings.Contains(text, "Документ.РеализацияТоваров") {
+		t.Errorf("intersections: expected РеализацияТоваров, got:\n%s", text)
+	}
+	if strings.Contains(text, "## Справочник.Контрагенты") {
+		t.Errorf("intersections cross-branch must exclude same-root Контрагенты, got:\n%s", text)
+	}
+}
+
+// TestIntegration_ObjectStructure_Subsystem_FromDump proves object_structure serves
+// object_type=Subsystem from the dump (Состав + nested tree) and not from the mock.
+func TestIntegration_ObjectStructure_Subsystem_FromDump(t *testing.T) {
+	session, cleanup := setupIntegrationSubsystemDump(t)
+	defer cleanup()
+
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "get_object_structure",
+		Arguments: map[string]any{"object_type": "Subsystem", "object_name": "Продажи"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool error: %v", err)
+	}
+	text := res.Content[0].(*mcp.TextContent).Text
+	for _, want := range []string{"Продажи", "## Состав", "Справочник.Контрагенты", "Документ.РеализацияТоваров", "## Подсистемы", "Розница", "Справочник.Склады"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("expected %q in dump-served structure, got:\n%s", want, text)
+		}
+	}
+	for _, mockOnly := range []string{"Касса", "КассовыйОрдер"} {
+		if strings.Contains(text, mockOnly) {
+			t.Errorf("structure leaked mock-only %q -> live path used, not the dump:\n%s", mockOnly, text)
+		}
+	}
+}
+
+// TestIntegration_ObjectStructure_NonSubsystem_StaysLiveWithDump proves that even
+// with a dump present, a NON-Subsystem object_structure request falls through to the
+// live extension (the dump owns only the Subsystem type).
+func TestIntegration_ObjectStructure_NonSubsystem_StaysLiveWithDump(t *testing.T) {
+	session, cleanup := setupIntegrationSubsystemDump(t)
+	defer cleanup()
+
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "get_object_structure",
+		Arguments: map[string]any{"object_type": "Document", "object_name": "РеализацияТоваровУслуг"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool error: %v", err)
+	}
+	text := res.Content[0].(*mcp.TextContent).Text
+	// These come only from the mock's Document structure (the dump has no attribute
+	// reader), so their presence proves the live path served this type.
+	for _, want := range []string{"Контрагент", "СуммаДокумента", "Товары"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("non-Subsystem type must be served live; expected %q, got:\n%s", want, text)
+		}
+	}
+}
+
 func TestIntegration_ListTools(t *testing.T) {
 	session, cleanup := setupIntegration(t)
 	defer cleanup()
@@ -334,15 +646,16 @@ func TestIntegration_ListTools(t *testing.T) {
 
 	expected := []string{
 		"get_metadata_tree", "get_object_structure", "execute_query",
-		"search_code", "get_form_structure", "validate_query",
-		"get_event_log", "get_configuration_info", "read_counterparties",
+		"search_code", "reload_dump", "get_form_structure", "validate_query",
+		"get_event_log", "get_configuration_info", "bsl_syntax_help",
+		"analyze_subsystems",
+		"read_counterparties",
 		"create_counterparty", "read_nomenclature", "create_nomenclature",
 		"read_organizations", "read_contracts",
 		"read_sales_invoices", "create_sales_invoice", "update_sales_invoice",
 		"read_sales_documents", "create_sales_document", "update_sales_document",
 		"read_document_attachments", "get_document_attachment_content", "update_document_attachment_metadata",
-		"attach_file_to_document",
-		"bsl_syntax_help",
+		"attach_file_to_document", "create_incoming_goods_document",
 	}
 	for _, want := range expected {
 		if !toolNames[want] {
@@ -578,6 +891,7 @@ func TestIntegration_MetadataTree(t *testing.T) {
 		"Регистры накопления", "Общие модули",
 		"Перечисления", "Планы счетов", "Роли",
 		"Подсистемы", "HTTP-сервисы", "Планы обмена", "Константы",
+		"Определяемые типы",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("expected %q in summary, got:\n%s", want, text)
@@ -652,23 +966,118 @@ func TestIntegration_ObjectStructure_Register(t *testing.T) {
 	}
 }
 
+func TestIntegration_ObjectStructure_DefinedType(t *testing.T) {
+	session, cleanup := setupIntegration(t)
+	defer cleanup()
+
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "get_object_structure",
+		Arguments: map[string]any{
+			"object_type": "DefinedType",
+			"object_name": "ЗначениеДоступа",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool error: %v", err)
+	}
+	if len(result.Content) == 0 {
+		t.Fatal("expected non-empty content")
+	}
+
+	text := result.Content[0].(*mcp.TextContent).Text
+	for _, want := range []string{
+		"ЗначениеДоступа",
+		"Состав типа",
+		"Справочник.Пользователи",
+		"Справочник.ВнешниеПользователи",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("expected %q in response, got:\n%s", want, text)
+		}
+	}
+}
+
+// object_structure(Subsystem) via the LIVE path (no dump present): a nil offline
+// source must be byte-identical to the legacy live-only handler.
+func TestIntegration_ObjectStructure_Subsystem(t *testing.T) {
+	session, cleanup := setupIntegrationNoDump(t)
+	defer cleanup()
+
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "get_object_structure",
+		Arguments: map[string]any{
+			"object_type": "Subsystem",
+			"object_name": "Продажи",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool error: %v", err)
+	}
+	if len(result.Content) == 0 {
+		t.Fatal("expected non-empty content")
+	}
+
+	text := result.Content[0].(*mcp.TextContent).Text
+	for _, want := range []string{
+		"Продажи",
+		"## Состав",
+		"Справочник.Контрагенты",
+		"Документ.РеализацияТоваровУслуг",
+		"## Подсистемы",
+		"Розница",
+		"Касса",
+		"Документ.КассовыйОрдер",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("expected %q in response, got:\n%s", want, text)
+		}
+	}
+}
+
 func TestIntegration_ObjectStructure_NotFound(t *testing.T) {
 	session, cleanup := setupIntegration(t)
 	defer cleanup()
 
-	_, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: "get_object_structure",
 		Arguments: map[string]any{
 			"object_type": "Document",
 			"object_name": "НесуществующийДокумент",
 		},
 	})
-	if err == nil {
-		t.Fatal("expected error for non-existent object")
+	// A 404 from 1C is something the caller can act on, so it arrives as a tool
+	// result with IsError rather than as a protocol error it never sees. The
+	// status still has to be in the text: without it the caller cannot tell a
+	// missing object from an unreachable server.
+	text := toolFailureText(t, res, err)
+	if !strings.Contains(text, "404") {
+		t.Errorf("expected 404 in the failure, got:\n%s", text)
 	}
-	if !strings.Contains(err.Error(), "404") {
-		t.Errorf("expected 404 in error, got: %v", err)
+}
+
+// toolFailureText asserts the operational contract over a real session and
+// returns the rendered text.
+func toolFailureText(t *testing.T, res *mcp.CallToolResult, err error) string {
+	t.Helper()
+	if err != nil {
+		t.Fatalf("an operational failure came back as a protocol error: %v", err)
 	}
+	if res == nil {
+		t.Fatal("neither a result nor an error came back")
+	}
+	if !res.IsError {
+		t.Fatal("the result does not carry IsError, so this was not reported as a failure at all")
+	}
+	var b strings.Builder
+	for _, c := range res.Content {
+		if tc, ok := c.(*mcp.TextContent); ok {
+			b.WriteString(tc.Text)
+		}
+	}
+	if b.Len() == 0 {
+		t.Fatal("the failure carries no text content")
+	}
+	return b.String()
 }
 
 func TestIntegration_FormStructure(t *testing.T) {
@@ -881,6 +1290,123 @@ func TestIntegration_EventLog(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Errorf("expected %q in response, got:\n%s", want, text)
 		}
+	}
+}
+
+// TestIntegration_EventLogByEvent drives the event filter end to end.
+//
+// Two properties, and the second is the one the whole filter exists for: the
+// names the caller asked for have to REACH 1С, and the phrase 1С prints for an
+// event has to reach the caller. A filter this side drops arrives as no filter at
+// all, and the log that comes back then reads exactly like the answer.
+func TestIntegration_EventLogByEvent(t *testing.T) {
+	session, cleanup := setupIntegration(t)
+	defer cleanup()
+
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "get_event_log",
+		Arguments: map[string]any{
+			"event": []string{"_$Session$_.Start"},
+			"limit": 10,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool error: %v", err)
+	}
+	if len(result.Content) == 0 {
+		t.Fatal("expected non-empty content")
+	}
+	text := result.Content[0].(*mcp.TextContent).Text
+
+	// The record that was asked for, with the identifier AND the phrase.
+	for _, want := range []string{"_$Session$_.Start", "Сеанс. Начало"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("expected %q in the answer, got:\n%s", want, text)
+		}
+	}
+	// And nothing else. The fixture holds a second record under another event; if
+	// it comes back, the filter never reached 1С.
+	if strings.Contains(text, "_$Data$_.Update") {
+		t.Errorf("the answer carries a record the filter excluded, so the filter did not reach "+
+			"1С and the whole log came back:\n%s", text)
+	}
+
+	// CONTROL: that second record IS reachable, so its absence above is the filter
+	// working and not the fixture being empty.
+	all, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "get_event_log",
+		Arguments: map[string]any{"limit": 10},
+	})
+	if err != nil {
+		t.Fatalf("CallTool error on the unfiltered control: %v", err)
+	}
+	if !strings.Contains(all.Content[0].(*mcp.TextContent).Text, "_$Data$_.Update") {
+		t.Error("CONTROL: the unfiltered call does not carry _$Data$_.Update either, so the " +
+			"filtered call proved nothing")
+	}
+}
+
+// analyze_subsystems via the LIVE path (no dump present): a nil offline source
+// must be byte-identical to the legacy live-only handler.
+func TestIntegration_AnalyzeSubsystems(t *testing.T) {
+	session, cleanup := setupIntegrationNoDump(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// orphans: applied objects in no subsystem.
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "analyze_subsystems",
+		Arguments: map[string]any{"action": "orphans"},
+	})
+	if err != nil {
+		t.Fatalf("orphans CallTool error: %v", err)
+	}
+	text := res.Content[0].(*mcp.TextContent).Text
+	for _, want := range []string{"Объекты вне подсистем", "Справочник.Номенклатура", "РегистрСведений.КурсыВалют"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("orphans: expected %q, got:\n%s", want, text)
+		}
+	}
+
+	// containing: which subsystems hold РеализацияТоваровУслуг (short name).
+	res, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "analyze_subsystems",
+		Arguments: map[string]any{"action": "containing", "object": "РеализацияТоваровУслуг"},
+	})
+	if err != nil {
+		t.Fatalf("containing CallTool error: %v", err)
+	}
+	text = res.Content[0].(*mcp.TextContent).Text
+	for _, want := range []string{"Документ.РеализацияТоваровУслуг", "Продажи", "Финансы"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("containing: expected %q, got:\n%s", want, text)
+		}
+	}
+
+	// intersections cross-branch: only the object spanning distinct roots.
+	res, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "analyze_subsystems",
+		Arguments: map[string]any{"action": "intersections", "cross_branch_only": true},
+	})
+	if err != nil {
+		t.Fatalf("intersections CallTool error: %v", err)
+	}
+	text = res.Content[0].(*mcp.TextContent).Text
+	if !strings.Contains(text, "Документ.РеализацияТоваровУслуг") {
+		t.Errorf("intersections: expected РеализацияТоваровУслуг, got:\n%s", text)
+	}
+	if strings.Contains(text, "## Справочник.Контрагенты") {
+		t.Errorf("intersections cross-branch must exclude same-root Контрагенты, got:\n%s", text)
+	}
+
+	// An unknown action returns a clean failure the caller can read.
+	res, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "analyze_subsystems",
+		Arguments: map[string]any{"action": "nope"},
+	})
+	if failText := toolFailureText(t, res, err); !strings.Contains(failText, "unknown action") {
+		t.Errorf("the failure does not name the rejected action:\n%s", failText)
 	}
 }
 

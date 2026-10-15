@@ -23,8 +23,18 @@ Thumbs.db
 
 # Build
 dist/
+build/
+
+# Garble test binaries
+mcp-1c-community-garble-test-*
 
 # Extension build artifacts
 extension/*.cfe
 cmd/mcp-1c/extension/
+
+# Release artifacts, создаются шагами RELEASING.md в корне репозитория
+/checksums.txt
+/release-notes.md
+/release-block.md
+/MCP_HTTPService.cfe
 
