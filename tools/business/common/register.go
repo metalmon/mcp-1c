@@ -7,6 +7,19 @@ import (
 )
 
 func RegisterReadTools(s *mcp.Server, onecClient *onec.Client) {
+	// Язык запросов 1С («ВЫБРАТЬ») не умеет менять данные, инструмент помечен
+	// ReadOnlyHint, и права ему даёт тот пользователь базы, под которым
+	// подключились, — не список инструментов. Поэтому он законно живёт среди
+	// читающих и остаётся доступен при --access read_only.
+	//
+	// Зачем он бизнес-набору: восемь остальных читающих отвечают на восемь
+	// вопросов, а бухгалтер спрашивает что угодно — в том числе остатки по
+	// складу, которых ни один именованный инструмент не знает. Описание
+	// execute_query прямо учит виртуальным таблицам регистров
+	// (РегистрНакопления.X.Остатки, .Обороты, РегистрСведений.X.СрезПоследних),
+	// то есть один инструмент закрывает класс вопросов вместо того, чтобы
+	// заводить новый под каждый. Решение владельца 2.11.2026.
+	s.AddTool(tools.QueryTool(), tools.NewQueryHandler(onecClient))
 	s.AddTool(tools.ReadCounterpartiesTool(), tools.NewReadCounterpartiesHandler(onecClient))
 	s.AddTool(tools.ReadNomenclatureTool(), tools.NewReadNomenclatureHandler(onecClient))
 	s.AddTool(tools.ReadOrganizationsTool(), tools.NewReadOrganizationsHandler(onecClient))
