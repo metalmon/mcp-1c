@@ -6,7 +6,17 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func RegisterReadTools(s *mcp.Server, onecClient *onec.Client) {
+// Инструменты, не зависящие от ПРОФИЛЯ: они работают против любой
+// конфигурации, потому что идут не через фасад расширения
+// (`MCPBusinessFacade`), а прямо в платформу — язык запросов и метаданные есть
+// в любой базе. Поэтому их получает и `buh_3_0`, и `generic`.
+//
+// Отделены от читающих ниже не ради порядка, а по необходимости: у профиля
+// `generic` фасад — заглушка целиком (15 из 17 функций бросают «not
+// implemented», остальные две — внутренние помощники), и все именованные
+// бизнес-инструменты там публиковались, но не работали. Разделение позволяет
+// `generic` взять работающее и не объявлять неработающего.
+func RegisterQueryTools(s *mcp.Server, onecClient *onec.Client) {
 	// Язык запросов 1С («ВЫБРАТЬ») не умеет менять данные, инструмент помечен
 	// ReadOnlyHint, и права ему даёт тот пользователь базы, под которым
 	// подключились, — не список инструментов. Поэтому он законно живёт среди
@@ -39,6 +49,14 @@ func RegisterReadTools(s *mcp.Server, onecClient *onec.Client) {
 	s.AddTool(tools.MetadataTool(), tools.NewMetadataHandler(onecClient))
 	s.AddTool(tools.ObjectStructureTool(), tools.NewObjectStructureHandler(onecClient))
 	s.AddTool(tools.ValidateQueryTool(), tools.NewValidateQueryHandler(onecClient))
+}
+
+// Именованные читающие инструменты. КАЖДЫЙ идёт через фасад расширения
+// (`MCPBusinessFacade`), поэтому работает только там, где фасад реализован, —
+// сегодня это профиль `buh_3_0`. Профиль `generic` их НЕ регистрирует: его
+// фасад — заглушка, и объявленный инструмент отвечал бы агенту «generic
+// profile: … is not implemented» вместо данных.
+func RegisterReadTools(s *mcp.Server, onecClient *onec.Client) {
 	s.AddTool(tools.ReadCounterpartiesTool(), tools.NewReadCounterpartiesHandler(onecClient))
 	s.AddTool(tools.ReadNomenclatureTool(), tools.NewReadNomenclatureHandler(onecClient))
 	s.AddTool(tools.ReadOrganizationsTool(), tools.NewReadOrganizationsHandler(onecClient))

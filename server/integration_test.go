@@ -274,7 +274,13 @@ func mock1CHandler() http.Handler {
 
 // setupIntegration creates a mock 1C server and connected MCP client session.
 func setupIntegration(t *testing.T) (*mcp.ClientSession, func()) {
-	return setupIntegrationWithOptions(t, Options{})
+	// Профиль задан явно, и это важно: без него он разрешается в `generic`, у
+	// которого именованных бизнес-инструментов НЕТ вовсе (его фасад в расширении
+	// — заглушка, см. `tools/business/generic/register.go`). Прежде этот
+	// помощник молчал о профиле, `generic` публиковал всё подряд, и здешние
+	// проверки проходили ровно из-за того дефекта. Нужен набор с бизнес-
+	// инструментами — значит нужен профиль, который их правда обслуживает.
+	return setupIntegrationWithOptions(t, Options{Profile: "buh_3_0"})
 }
 
 func setupIntegrationWithOptions(t *testing.T, options Options) (*mcp.ClientSession, func()) {
@@ -332,6 +338,35 @@ func setupIntegrationWithOptions(t *testing.T, options Options) (*mcp.ClientSess
 		mock.Close()
 	}
 	return session, cleanup
+}
+
+// Профиль `generic` (любая конфигурация, кроме «Бухгалтерии 3.0» — в том числе
+// УНФ) не должен объявлять инструментов, которых не обслуживает: его фасад в
+// расширении — заглушка, и объявленный `read_nomenclature` отвечал бы агенту
+// «generic profile: read_nomenclature is not implemented». Остаются только те,
+// что идут прямо в платформу, мимо фасада.
+func TestIntegration_GenericProfileOffersOnlyWhatItServes(t *testing.T) {
+	session, cleanup := setupIntegrationWithOptions(t, Options{Toolset: ToolsetBusiness, Profile: "generic"})
+	defer cleanup()
+
+	result, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools error: %v", err)
+	}
+	got := make(map[string]bool)
+	for _, tool := range result.Tools {
+		got[tool.Name] = true
+	}
+	for _, want := range []string{"execute_query", "get_metadata_tree", "get_object_structure", "validate_query"} {
+		if !got[want] {
+			t.Errorf("expected profile-independent tool %q under generic, got %v", want, got)
+		}
+	}
+	for _, facade := range []string{"read_nomenclature", "read_counterparties", "create_counterparty", "create_sales_document"} {
+		if got[facade] {
+			t.Errorf("facade-backed tool %q must not be offered under generic (its facade is a stub), got %v", facade, got)
+		}
+	}
 }
 
 func TestIntegration_ListTools(t *testing.T) {

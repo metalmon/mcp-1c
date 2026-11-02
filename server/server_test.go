@@ -92,7 +92,11 @@ func TestToolsetsAffectRegisteredTools(t *testing.T) {
 
 	client := onec.NewClient("http://localhost:8080/mcp", "", "")
 
-	allTools := listToolNames(t, New("test", client, nil))
+	// Профиль указан явно: без него он разрешается в `generic`, а у того
+	// именованных бизнес-инструментов нет вовсе — его фасад в расширении
+	// заглушка (`tools/business/generic/register.go`). «Оба набора сразу»
+	// проверяется там, где бизнес-набор правда есть.
+	allTools := listToolNames(t, New("test", client, nil, Options{Profile: "buh_3_0"}))
 	if !allTools["get_metadata_tree"] || !allTools["read_counterparties"] {
 		t.Fatalf("expected both developer and business tools, got %v", allTools)
 	}
@@ -110,7 +114,7 @@ func TestToolsetsAffectRegisteredTools(t *testing.T) {
 
 	businessTools := listToolNames(t, New("test", client, nil, Options{
 		Toolset: ToolsetBusiness,
-		Profile: "generic",
+		Profile: "buh_3_0",
 	}))
 	// Правило изменено 2.11.2026 решением владельца, и изменено сознательно:
 	// бизнес-набор получил `execute_query` и трёх его спутников, без которых
@@ -269,7 +273,7 @@ func TestBusinessReadOnlyModeDoesNotRegisterWriteTools(t *testing.T) {
 	client := onec.NewClient("http://localhost:8080/mcp", "", "")
 	toolsList := listToolNames(t, New("test", client, nil, Options{
 		Toolset: ToolsetBusiness,
-		Profile: "generic",
+		Profile: "buh_3_0",
 		Access:  AccessReadOnly,
 	}))
 
