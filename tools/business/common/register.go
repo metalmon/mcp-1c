@@ -20,6 +20,25 @@ func RegisterReadTools(s *mcp.Server, onecClient *onec.Client) {
 	// то есть один инструмент закрывает класс вопросов вместо того, чтобы
 	// заводить новый под каждый. Решение владельца 2.11.2026.
 	s.AddTool(tools.QueryTool(), tools.NewQueryHandler(onecClient))
+	// Три спутника `execute_query`, без которых он почти бесполезен, и это не
+	// рассуждение: его СОБСТВЕННОЕ описание велит «вызови validate_query перед
+	// выполнением» и «имена полей бери из get_object_structure», а
+	// get_metadata_tree отвечает на предшествующий вопрос — какие объекты в
+	// этой базе вообще есть. Без них бизнес-пользователь получил инструмент,
+	// чьим указаниям не может следовать.
+	//
+	// Все три помечены ReadOnlyHint, читают СТРУКТУРУ конфигурации, а не
+	// данные, и не зависят ни от каталога выгрузки, ни от индекса — то есть
+	// доступны там, где у человека ничего, кроме опубликованной базы.
+	//
+	// Граница набора: бизнес-пользователю достаётся ровно то, что делает
+	// `execute_query` пригодным, и ничего больше. Журнал событий, поиск по
+	// коду, справка по языку и структура форм остаются у разработчика.
+	// Решение владельца 2.11.2026 («get_metadata_tree может тоже надо давать
+	// во всех профилях, как execute_query?»).
+	s.AddTool(tools.MetadataTool(), tools.NewMetadataHandler(onecClient))
+	s.AddTool(tools.ObjectStructureTool(), tools.NewObjectStructureHandler(onecClient))
+	s.AddTool(tools.ValidateQueryTool(), tools.NewValidateQueryHandler(onecClient))
 	s.AddTool(tools.ReadCounterpartiesTool(), tools.NewReadCounterpartiesHandler(onecClient))
 	s.AddTool(tools.ReadNomenclatureTool(), tools.NewReadNomenclatureHandler(onecClient))
 	s.AddTool(tools.ReadOrganizationsTool(), tools.NewReadOrganizationsHandler(onecClient))

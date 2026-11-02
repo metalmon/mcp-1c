@@ -198,8 +198,18 @@ func mock1CHandler() http.Handler {
 		})
 	})
 	mux.HandleFunc("/document-attachments", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
+		// GET с параметрами в строке запроса: чтение вложений перешло на него
+		// (`tools/document_attachments_read_update.go`, `client.GetQuery`), а
+		// заглушка осталась на POST и отвечала 405 — тест падал не из-за
+		// продукта, а из-за отставшего мока.
+		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		// Заодно проверяем, что параметр ДОШЁЛ: прежняя заглушка не смотрела
+		// на запрос вовсе и была зелена при любом содержимом.
+		if r.URL.Query().Get("document_ref") == "" {
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -219,8 +229,14 @@ func mock1CHandler() http.Handler {
 		})
 	})
 	mux.HandleFunc("/document-attachment-content", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
+		// То же, что у `/document-attachments` выше: чтение содержимого идёт
+		// GET-ом с `attachment_ref` в строке запроса.
+		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		if r.URL.Query().Get("attachment_ref") == "" {
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -342,6 +358,10 @@ func TestIntegration_ListTools(t *testing.T) {
 		"read_sales_documents", "create_sales_document", "update_sales_document",
 		"read_document_attachments", "get_document_attachment_content", "update_document_attachment_metadata",
 		"attach_file_to_document",
+		// Инструмент был добавлен в `RegisterWriteTools`, а этот список не
+		// обновили — отсюда «expected 25 tools, got 26», с которым тест падал
+		// задолго до правок 2.11.
+		"create_incoming_goods_document",
 		"bsl_syntax_help",
 	}
 	for _, want := range expected {

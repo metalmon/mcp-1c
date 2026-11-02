@@ -112,8 +112,28 @@ func TestToolsetsAffectRegisteredTools(t *testing.T) {
 		Toolset: ToolsetBusiness,
 		Profile: "generic",
 	}))
-	if businessTools["get_metadata_tree"] {
-		t.Fatalf("did not expect developer tools in business toolset, got %v", businessTools)
+	// Правило изменено 2.11.2026 решением владельца, и изменено сознательно:
+	// бизнес-набор получил `execute_query` и трёх его спутников, без которых
+	// тот бесполезен — его СОБСТВЕННОЕ описание велит звать `validate_query`
+	// перед выполнением и брать имена полей из `get_object_structure`, а
+	// `get_metadata_tree` отвечает на предшествующий вопрос «какие объекты в
+	// базе есть». Все четыре читают СТРУКТУРУ конфигурации, помечены
+	// ReadOnlyHint и не зависят ни от выгрузки, ни от индекса.
+	//
+	// Разделение наборов при этом НЕ отменено: инструменты, которые остаются
+	// только у разработчика, перечислены ниже поимённо, и тест по-прежнему
+	// покраснеет, если кто-нибудь занесёт в бизнес-набор журнал событий,
+	// поиск по коду, справку по языку, структуру форм или сведения о
+	// конфигурации.
+	for _, shared := range []string{"execute_query", "get_metadata_tree", "get_object_structure", "validate_query"} {
+		if !businessTools[shared] {
+			t.Fatalf("expected shared query tool %q in business toolset, got %v", shared, businessTools)
+		}
+	}
+	for _, devOnly := range []string{"search_code", "get_event_log", "bsl_syntax_help", "get_form_structure", "get_configuration_info"} {
+		if businessTools[devOnly] {
+			t.Fatalf("did not expect developer-only tool %q in business toolset, got %v", devOnly, businessTools)
+		}
 	}
 	if !businessTools["read_counterparties"] || !businessTools["create_counterparty"] {
 		t.Fatalf("expected business tools in business toolset, got %v", businessTools)
