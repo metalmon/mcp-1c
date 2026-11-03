@@ -173,3 +173,39 @@ func TestObjectStructureTool(t *testing.T) {
 		t.Error("expected non-empty description")
 	}
 }
+
+// Путь к точке 1С склеивался из того, что прислал агент, без проверки: тип
+// `../event-log` уводил запрос на другую точку той же публикации — к тем GET-ам,
+// которых бизнес-набор нарочно не даёт. Файловая сторона этого же инструмента
+// (`dump.FindFormFiles`) так защищена с самого начала, сетевая — не была.
+// Находка ревью 3.11.2026.
+func TestObjectStructureHandlerRefusesPathCharacters(t *testing.T) {
+	var hits int
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		http.NotFound(w, r)
+	}))
+	defer mockServer.Close()
+
+	client := onec.NewClient(mockServer.URL, "", "")
+	handler := NewObjectStructureHandler(client)
+
+	for _, bad := range []struct{ objectType, objectName string }{
+		{"../event-log", "X"},
+		{"Document", "../../etc/passwd"},
+		{"Document", "Реализация/Товаров"},
+		{"Document", "X%2fY"},
+	} {
+		args, err := json.Marshal(map[string]string{"object_type": bad.objectType, "object_name": bad.objectName})
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Arguments: args}}
+		if _, err := handler(context.Background(), req); err == nil {
+			t.Errorf("тип %q и имя %q обязаны быть отвергнуты", bad.objectType, bad.objectName)
+		}
+	}
+	if hits != 0 {
+		t.Errorf("отвергнутый запрос не должен уходить на сервер, ушло %d", hits)
+	}
+}

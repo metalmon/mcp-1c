@@ -64,7 +64,15 @@ func NewFormStructureHandler(client *onec.Client, dumpDir string) mcp.ToolHandle
 		// Try 1C HTTP endpoint first.
 		var form onec.FormStructure
 		var httpErr error
-		endpoint := fmt.Sprintf("/form/%s/%s", input.ObjectType, input.ObjectName)
+		safeType, err := metadataPathPart("object_type", input.ObjectType)
+		if err != nil {
+			return nil, err
+		}
+		safeName, err := metadataPathPart("object_name", input.ObjectName)
+		if err != nil {
+			return nil, err
+		}
+		endpoint := fmt.Sprintf("/form/%s/%s", safeType, safeName)
 		httpErr = client.Get(ctx, endpoint, &form)
 
 		// If dump directory is configured, try to enrich from Form.xml.

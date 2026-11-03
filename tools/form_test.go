@@ -378,3 +378,37 @@ func sampleFormXML() string {
   </Handlers>
 </Form>`
 }
+
+// То же, что у структуры объекта: адрес точки 1С склеивался из присланного
+// агентом без проверки. Файловая половина этого инструмента
+// (`dump.FindFormFiles`) traversal отвергает с самого начала, сетевая — нет.
+// Находка ревью 3.11.2026.
+func TestFormStructureHandlerRefusesPathCharacters(t *testing.T) {
+	var hits int
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		http.NotFound(w, r)
+	}))
+	defer mockServer.Close()
+
+	handler := NewFormStructureHandler(onec.NewClient(mockServer.URL, "", ""), "")
+
+	for _, bad := range []struct{ objectType, objectName string }{
+		{"../event-log", "X"},
+		{"Document", "../../etc/passwd"},
+		{"Document", "Реализация/Товаров"},
+		{"Document", "X%2fY"},
+	} {
+		args, err := json.Marshal(map[string]string{"object_type": bad.objectType, "object_name": bad.objectName})
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Arguments: args}}
+		if _, err := handler(context.Background(), req); err == nil {
+			t.Errorf("тип %q и имя %q обязаны быть отвергнуты", bad.objectType, bad.objectName)
+		}
+	}
+	if hits != 0 {
+		t.Errorf("отвергнутый запрос не должен уходить на сервер, ушло %d", hits)
+	}
+}

@@ -49,7 +49,15 @@ func NewObjectStructureHandler(client *onec.Client) mcp.ToolHandler {
 			return nil, fmt.Errorf("object_type and object_name are required")
 		}
 
-		endpoint := fmt.Sprintf("/object/%s/%s", input.ObjectType, input.ObjectName)
+		safeType, err := metadataPathPart("object_type", input.ObjectType)
+		if err != nil {
+			return nil, err
+		}
+		safeName, err := metadataPathPart("object_name", input.ObjectName)
+		if err != nil {
+			return nil, err
+		}
+		endpoint := fmt.Sprintf("/object/%s/%s", safeType, safeName)
 		var obj onec.ObjectStructure
 		if err := client.Get(ctx, endpoint, &obj); err != nil {
 			return nil, fmt.Errorf("fetching object structure from 1C: %w", err)
